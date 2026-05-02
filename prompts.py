@@ -340,13 +340,21 @@ def build_grading_prompt(exam_level, genre, prompt_text, requirements,
     {{
       "para_num": 1,
       "para_role": "开头/分论点/过渡/结尾 等",
-      "original_text": "学生原段落完整文字（完整复制,一字不漏,作为前端高亮和对照用）",
-      "language_issues": [
+      "original_text": "学生原段落完整文字（完整复制,一字不漏,前端会用此文字做高亮）",
+      "red_issues": [
         {{
-          "type": "错别字/病句/弱句/衔接问题",
-          "original": "原文中的错处（要和原文完全一致用于高亮）",
+          "type": "错别字/病句",
+          "original": "原文中的错处（必须与 original_text 中完全一致,前端用 indexOf 精确匹配高亮）",
           "improved": "改正后的写法",
           "explanation": "为什么这样改（20字内）"
+        }}
+      ],
+      "green_issues": [
+        {{
+          "type": "弱句/逻辑问题/衔接问题",
+          "original": "原文中需要改进的句子（必须与 original_text 中完全一致,前端会绿色高亮）",
+          "issue_detail": "这句话有什么问题（40字内,要具体）",
+          "suggestion": "如何改进（40字内,有具体方向）"
         }}
       ],
       "structure_content_issues": [
@@ -370,14 +378,32 @@ def build_grading_prompt(exam_level, genre, prompt_text, requirements,
 ═══════════════════════════════════════════════════════
 
 1. paragraph_feedback 必须覆盖学生作文的所有段落,你自己识别段落数量
-2. 每段的 original_text 必须是学生原段落的完整复制（不能省略、不能改动）
+2. 每段的 original_text 必须是学生原段落的完整复制（不能省略、不能改动、不能加省略号）
 3. 每段的 revised_basic 和 revised_advanced 都必须填写,不能为空
 4. revised_advanced 至少要明显比 revised_basic 复杂(更长、词汇更丰富、句式更多样)
-5. language_issues 和 structure_content_issues 各最多 3 条,没问题填 []
-6. coaching_advice 至少 3 条,要像老师手写批语那样具体、有教学意图
-7. highlights 字段:学生这段写得好就指出,没亮点填空字符串 ""
-8. 【严禁】所有字符串值内部不能有英文双引号"和换行符。引用原文用【】,对话用『』
-9. JSON 必须是有效的,不能截断,不能有注释
+
+5. ★ red_issues vs green_issues 的区分（极其重要）:
+   - red_issues = 机械错误,学生只要看到正确写法就能学会
+     ✓ 例子: 错别字、明显的病句、标点错误、语法错误
+     ✓ 学生悬停看答案就懂
+   - green_issues = 思维 / 表达问题,需要解释才能改进
+     ✓ 例子: 弱句(意思表达不到位)、逻辑跳跃、衔接生硬、论证不足、重复啰嗦
+     ✓ 学生需要看到"为什么不好 + 如何改"才能学会
+
+6. red_issues 和 green_issues 各最多 4 条,没问题填 []
+7. structure_content_issues 最多 3 条,没问题填 []
+8. coaching_advice 至少 3 条,要像老师手写批语那样具体、有教学意图
+9. highlights 字段:学生这段写得好就指出,没亮点填空字符串 ""
+
+10. ★ original 字段必须能在 original_text 里精确找到（用 Python 的 in 运算符可以匹配）
+    - 不能加省略号、不能拼接、不能改动一个字
+    - 例如 original_text = "环保很重要,人人有责"
+       好的 original = "人人有责"  ✓
+       坏的 original = "...有责"   ✗（带省略号）
+       坏的 original = "人人有责。"  ✗（多了个句号）
+
+11. 【严禁】所有字符串值内部不能有英文双引号"和换行符。引用原文用【】,对话用『』
+12. JSON 必须是有效的,不能截断,不能有注释
 
 ═══════════════════════════════════════════════════════
 【最重要的提醒】
