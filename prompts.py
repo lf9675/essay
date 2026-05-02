@@ -444,11 +444,13 @@ def build_grading_prompt(exam_level, genre, prompt_text, requirements,
 1. requirements_feedback 必须有 {req_count} 条，每条 req_num 对应写作要求编号。
 2. achieved 只填三个词之一：做到了、部分做到、没做到。
 3. 【严禁】所有字符串值内部不能出现英文双引号"，引用原文必须用【】括起来。
-4. language/structure/content 各最多 3 条，没问题就填 []。
-5. upgrade_table 最多 3 句；strengths 最多 2 条。
-6. highlight_errors 必须找出作文里所有错别字和病句弱句，text 必须和原文完全一致（包括标点）用于高亮定位。
-7. model_essay_paragraphs 必须覆盖所有段落，revised 总字数最少 {config['min_words']} 字，改动处用 **加粗** 标记。revised 里对话用『』而不是英文引号。
-8. grading_rationale 是核心字段，必须严格对应官方等级描述，不能模糊。"""
+4. 【严禁】任何字符串值内部不能有真实换行符。如需表示分行，写成"。"或"；"分隔。
+5. language/structure/content 各最多 3 条，没问题就填 []。
+6. upgrade_table 最多 3 句；strengths 最多 2 条。
+7. highlight_errors 必须找出作文里所有错别字和病句弱句，text 必须和原文完全一致（包括标点）用于高亮定位。
+8. model_essay_paragraphs 必须覆盖所有段落，revised 总字数最少 {config['min_words']} 字,改动处用 **加粗** 标记。revised 里对话用『』而不是英文引号。
+9. grading_rationale 是核心字段，必须严格对应官方等级描述，不能模糊。
+10. 输出必须是单行 JSON 或带缩进的 JSON,但每个字符串值必须在同一行内,不能跨行。"""
 
     return system_prompt
 
