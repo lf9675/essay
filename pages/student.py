@@ -637,7 +637,7 @@ elif st.session_state['feedback']:
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.expander("🔊 老师总评 + 进步建议", expanded=True):
-        # 语音播放
+        # 语音播放 - 读完整总评(包括优点、建议、教练建议)
         try:
             import asyncio, edge_tts, io as _io
             async def _gen_audio(text, voice):
@@ -646,7 +646,19 @@ elif st.session_state['feedback']:
                 async for chunk in com.stream():
                     if chunk["type"] == "audio": buf.write(chunk["data"])
                 buf.seek(0); return buf
-            _full_audio = audio_script
+
+            # 拼接完整语音内容
+            _audio_parts = [audio_script] if audio_script else []
+            if strengths:
+                _audio_parts.append("你的优点是：" + "；".join(strengths))
+            if overall:
+                _audio_parts.append("最重要的建议：" + overall)
+            if coaching:
+                _audio_parts.append("老师的教练建议是。" + "。".join(coaching))
+            if encourage:
+                _audio_parts.append(encourage)
+            _full_audio = "。".join([p.strip().rstrip("。") for p in _audio_parts if p]) + "。"
+
             st.audio(asyncio.run(_gen_audio(_full_audio, tts_voice)), format="audio/mp3")
         except Exception as e:
             st.caption(f"语音暂时不可用:{e}")
@@ -791,27 +803,22 @@ elif st.session_state['feedback']:
                     li_orig = li.get('original', '')
                     li_imp = li.get('improved', '')
                     li_exp = li.get('explanation', '')
-                    lang_html += f"""
-                    <div style="background:white;border-radius:6px;padding:0.6rem 0.8rem;
-                        margin:0.4rem 0;font-size:0.88rem;">
-                        <span style="background:#c62828;color:white;border-radius:4px;
-                            padding:0.1rem 0.5rem;font-size:0.75rem;margin-right:0.5rem;">{li_type}</span>
-                        <span style="color:#c62828;text-decoration:line-through;">{li_orig}</span>
-                        <span style="color:#888;margin:0 0.3rem;">→</span>
-                        <span style="color:#2e7d32;font-weight:500;">{li_imp}</span>
-                        <div style="color:#666;font-size:0.78rem;margin-top:0.2rem;
-                            margin-left:0.5rem;">💡 {li_exp}</div>
-                    </div>
-                    """
-                st.markdown(f"""
-                <div style="background:#ffebee;border-left:4px solid #c62828;
-                    padding:0.7rem 1rem;margin-top:0.4rem;border-radius:4px;">
-                    <div style="color:#c62828;font-weight:600;font-size:0.85rem;margin-bottom:0.4rem;">
-                        🔴 语言问题（错字 / 病句 / 弱句）
-                    </div>
-                    {lang_html}
-                </div>
-                """, unsafe_allow_html=True)
+                    lang_html += (
+                        '<div style="background:white;border-radius:6px;padding:0.6rem 0.8rem;margin:0.4rem 0;font-size:0.88rem;">'
+                        f'<span style="background:#c62828;color:white;border-radius:4px;padding:0.1rem 0.5rem;font-size:0.75rem;margin-right:0.5rem;">{li_type}</span>'
+                        f'<span style="color:#c62828;text-decoration:line-through;">{li_orig}</span>'
+                        '<span style="color:#888;margin:0 0.3rem;">→</span>'
+                        f'<span style="color:#2e7d32;font-weight:500;">{li_imp}</span>'
+                        f'<div style="color:#666;font-size:0.78rem;margin-top:0.2rem;margin-left:0.5rem;">💡 {li_exp}</div>'
+                        '</div>'
+                    )
+                st.markdown(
+                    '<div style="background:#ffebee;border-left:4px solid #c62828;padding:0.7rem 1rem;margin-top:0.4rem;border-radius:4px;">'
+                    '<div style="color:#c62828;font-weight:600;font-size:0.85rem;margin-bottom:0.4rem;">🔴 语言问题（错字 / 病句 / 弱句）</div>'
+                    f'{lang_html}'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
 
             # 结构内容问题(蓝色框)
             if struct_iss:
@@ -820,25 +827,20 @@ elif st.session_state['feedback']:
                     si_aspect = si.get('aspect', '')
                     si_problem = si.get('problem', '')
                     si_sugg = si.get('suggestion', '')
-                    struct_html += f"""
-                    <div style="background:white;border-radius:6px;padding:0.6rem 0.8rem;
-                        margin:0.4rem 0;font-size:0.88rem;">
-                        <div style="color:#1565c0;font-weight:600;margin-bottom:0.3rem;">
-                            📐 {si_aspect}
-                        </div>
-                        <div style="color:#5d3700;margin-bottom:0.3rem;">问题：{si_problem}</div>
-                        <div style="color:#1b5e20;">💡 建议：{si_sugg}</div>
-                    </div>
-                    """
-                st.markdown(f"""
-                <div style="background:#e3f2fd;border-left:4px solid #1565c0;
-                    padding:0.7rem 1rem;margin-top:0.4rem;border-radius:4px;">
-                    <div style="color:#0d47a1;font-weight:600;font-size:0.85rem;margin-bottom:0.4rem;">
-                        🔵 结构与内容批改
-                    </div>
-                    {struct_html}
-                </div>
-                """, unsafe_allow_html=True)
+                    struct_html += (
+                        '<div style="background:white;border-radius:6px;padding:0.6rem 0.8rem;margin:0.4rem 0;font-size:0.88rem;">'
+                        f'<div style="color:#1565c0;font-weight:600;margin-bottom:0.3rem;">📐 {si_aspect}</div>'
+                        f'<div style="color:#5d3700;margin-bottom:0.3rem;">问题：{si_problem}</div>'
+                        f'<div style="color:#1b5e20;">💡 建议：{si_sugg}</div>'
+                        '</div>'
+                    )
+                st.markdown(
+                    '<div style="background:#e3f2fd;border-left:4px solid #1565c0;padding:0.7rem 1rem;margin-top:0.4rem;border-radius:4px;">'
+                    '<div style="color:#0d47a1;font-weight:600;font-size:0.85rem;margin-bottom:0.4rem;">🔵 结构与内容批改</div>'
+                    f'{struct_html}'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
 
             # 修改示范(根据用户选择显示基础版或进阶版)
             version_label = "📘 基础版修改" if is_basic else "🌟 进阶版修改"
@@ -856,24 +858,49 @@ elif st.session_state['feedback']:
             """, unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════
-    # 模块 5:整篇范文(基础版 / 进阶版,按用户选择)
+    # 模块 5:整篇范文 + 原文对比
     # ══════════════════════════════════════════════════════════
     st.markdown("<br>", unsafe_allow_html=True)
-    if paragraphs:  # 只有当 paragraph_feedback 存在时才显示范文
-        with st.expander(f"📖 整篇范文（{('基础版' if is_basic else '进阶版')}）", expanded=False):
-            full_model = model_basic if is_basic else model_advanced
-            if full_model:
-                model_color = "#558b2f" if is_basic else "#6a1b9a"
-                model_bg = "#f1f8e9" if is_basic else "#f3e5f5"
-                st.markdown(f"""
-                <div style="background:{model_bg};border-left:4px solid {model_color};
-                    padding:1.2rem 1.5rem;border-radius:8px;font-size:0.95rem;line-height:1.95;
-                    color:#2c2c2a;white-space:pre-wrap;">
-                    {full_model}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.info("范文未生成,请重新提交。")
+    if paragraphs:
+        student_full_text = st.session_state.get('ocr_text', '')
+        full_model = model_basic if is_basic else model_advanced
+        version_name = "基础版" if is_basic else "进阶版"
+
+        st.markdown(f"### 📖 整篇范文对比（{version_name}）")
+
+        if full_model:
+            model_color = "#558b2f" if is_basic else "#6a1b9a"
+            model_bg = "#f1f8e9" if is_basic else "#f3e5f5"
+
+            col_orig, col_revised = st.columns(2)
+            with col_orig:
+                st.markdown(
+                    '<div style="background:#fafaf0;border-left:4px solid #888;'
+                    'padding:1rem 1.2rem;border-radius:8px;font-size:0.92rem;'
+                    'line-height:1.85;color:#2c2c2a;white-space:pre-wrap;'
+                    'min-height:300px;">'
+                    '<div style="font-size:0.8rem;color:#666;font-weight:600;margin-bottom:0.6rem;">'
+                    '📝 你的原文'
+                    '</div>'
+                    f'{student_full_text}'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+            with col_revised:
+                st.markdown(
+                    f'<div style="background:{model_bg};border-left:4px solid {model_color};'
+                    'padding:1rem 1.2rem;border-radius:8px;font-size:0.92rem;'
+                    'line-height:1.85;color:#2c2c2a;white-space:pre-wrap;'
+                    'min-height:300px;">'
+                    f'<div style="font-size:0.8rem;color:{model_color};font-weight:600;margin-bottom:0.6rem;">'
+                    f'✨ {version_name}范文'
+                    '</div>'
+                    f'{full_model}'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+        else:
+            st.info("范文未生成,请重新提交。")
 
     # ══════════════════════════════════════════════════════════
     # 模块 6:再提交按钮
