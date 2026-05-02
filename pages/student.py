@@ -743,119 +743,385 @@ elif st.session_state['feedback']:
     if not paragraphs:
         st.info("AI 没有返回段落级批改。请检查作文内容。")
     else:
-        # 基础版 / 进阶版切换
-        st.markdown('<div style="margin:0.8rem 0;color:#555;font-size:0.9rem;">'
-                    '请选择修改示范的难度：</div>', unsafe_allow_html=True)
-        version = st.radio(
-            "修改难度",
-            ["📘 基础版（小六水平 · 文通字顺）", "🌟 进阶版（A1+水平 · 用词丰富）"],
-            horizontal=True, label_visibility="collapsed",
-            key="version_select"
+        # 默认基础版用于范文部分（每段独立切换在下面单独实现）
+        is_basic = True
+
+        # ── HTML 工具函数:在原文里嵌入红绿高亮 ────────────
+        def html_escape(s):
+            """HTML 转义"""
+            return (str(s).replace('&', '&amp;').replace('<', '&lt;')
+                    .replace('>', '&gt;').replace('"', '&quot;'))
+
+        def build_highlighted_paragraph(orig_text, red_list, green_list):
+            """
+            把 original_text 转成带高亮的 HTML。
+            红色 = 错字病句（用 <span class="red-hl"> 包裹,鼠标悬停看正确答案）
+            绿色 = 弱句逻辑（用 <span class="green-hl"> 包裹,点击展开看分析,在右侧）
+            """
+            # 收集所有需要高亮的"片段 → HTML"映射
+            replacements = []  # (start, end, replacement_html)
+
+            for r in red_list:
+                target = r.get('original', '')
+                if not target or target not in orig_text:
+                    continue
+                improved = html_escape(r.get('improved', ''))
+                explain = html_escape(r.get('explanation', ''))
+                tooltip = f"{improved}　{explain}".strip().rstrip('　')
+                hl_html = (f'<span class="red-hl" data-tooltip="{tooltip}">'
+                           f'{html_escape(target)}'
+                           f'<span class="tooltip-content">'
+                           f'<b>正确写法：</b>{improved}<br>'
+                           f'<span style="font-size:0.75rem;color:#aaa;">💡 {explain}</span>'
+                           f'</span></span>')
+                # 找所有匹配位置
+                start = 0
+                while True:
+                    idx = orig_text.find(target, start)
+                    if idx == -1:
+                        break
+                    replacements.append((idx, idx + len(target), hl_html))
+                    start = idx + len(target)
+
+            for idx_g, g in enumerate(green_list):
+                target = g.get('original', '')
+                if not target or target not in orig_text:
+                    continue
+                hl_html = (f'<span class="green-hl" data-green-idx="{idx_g+1}">'
+                           f'{html_escape(target)}'
+                           f'<sup class="green-num">{idx_g+1}</sup>'
+                           f'</span>')
+                start = 0
+                while True:
+                    idx = orig_text.find(target, start)
+                    if idx == -1:
+                        break
+                    replacements.append((idx, idx + len(target), hl_html))
+                    start = idx + len(target)
+
+            # 按 start 位置排序,避免重叠 — 后插入不能覆盖前一个
+            replacements.sort(key=lambda x: x[0])
+            # 去重:如果两段重叠,优先红色（先 append 的）
+            non_overlap = []
+            last_end = -1
+            for s, e, html in replacements:
+                if s >= last_end:
+                    non_overlap.append((s, e, html))
+                    last_end = e
+
+            # 从后往前替换以保持索引有效
+            result_chunks = []
+            cursor = 0
+            for s, e, html in non_overlap:
+                if s > cursor:
+                    result_chunks.append(html_escape(orig_text[cursor:s]))
+                result_chunks.append(html)
+                cursor = e
+            if cursor < len(orig_text):
+                result_chunks.append(html_escape(orig_text[cursor:]))
+
+            return ''.join(result_chunks)
+
+        # ── 全局 CSS:高亮样式 + 鼠标悬停 tooltip ─────────────
+        st.markdown('''
+        <style>
+        .red-hl {
+            background: #ffebee;
+            color: #c62828;
+            padding: 0.05rem 0.2rem;
+            border-radius: 3px;
+            border-bottom: 2px solid #c62828;
+            cursor: help;
+            position: relative;
+            display: inline-block;
+        }
+        .red-hl:hover { background: #ffcdd2; }
+        .red-hl .tooltip-content {
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a1a2e;
+            color: white;
+            padding: 0.6rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            white-space: normal;
+            min-width: 180px;
+            max-width: 280px;
+            text-align: left;
+            line-height: 1.6;
+            z-index: 9999;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        .red-hl:hover .tooltip-content {
+            visibility: visible;
+            opacity: 1;
+        }
+        .green-hl {
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 0.05rem 0.2rem;
+            border-radius: 3px;
+            border-bottom: 2px solid #43a047;
+            cursor: pointer;
+            display: inline-block;
+        }
+        .green-hl:hover { background: #c8e6c9; }
+        .green-num {
+            background: #43a047;
+            color: white;
+            font-size: 0.65rem;
+            padding: 0 0.3rem;
+            border-radius: 50%;
+            margin-left: 0.15rem;
+            font-weight: bold;
+            vertical-align: super;
+        }
+        .para-card {
+            background: linear-gradient(135deg,#1a1a2e,#16213e);
+            border-radius: 10px 10px 0 0;
+            padding: 0.7rem 1rem;
+            color: #f0c27f;
+            font-family: 'Noto Serif SC', serif;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-top: 1.5rem;
+        }
+        .left-orig {
+            background: #fafaf0;
+            border: 1px solid #e8e0d5;
+            border-top: none;
+            padding: 1rem 1.2rem;
+            font-size: 0.95rem;
+            line-height: 2.1;
+            color: #2c2c2a;
+            border-radius: 0;
+            min-height: 250px;
+            height: 100%;
+        }
+        .right-fb {
+            background: #fbfbfb;
+            border: 1px solid #e8e0d5;
+            border-top: none;
+            padding: 1rem 1.2rem;
+            font-size: 0.92rem;
+            color: #2c2c2a;
+            min-height: 250px;
+            height: 100%;
+        }
+        .legend-tag {
+            display: inline-block;
+            font-size: 0.72rem;
+            padding: 0.1rem 0.5rem;
+            border-radius: 3px;
+            margin-right: 0.4rem;
+            font-weight: 500;
+        }
+        </style>
+        ''', unsafe_allow_html=True)
+
+        # ── 全局图例提示 ──
+        st.markdown(
+            '<div style="background:#fdf8ee;border-left:3px solid #f0c27f;'
+            'padding:0.6rem 1rem;border-radius:6px;margin-bottom:1rem;font-size:0.85rem;color:#5d3700;">'
+            '💡 <b>使用提示：</b>'
+            '<span class="legend-tag" style="background:#ffebee;color:#c62828;border:1px solid #c62828;">红色</span>'
+            '错字/病句 — 鼠标悬停看正确写法 　 '
+            '<span class="legend-tag" style="background:#e8f5e9;color:#2e7d32;border:1px solid #43a047;">绿色</span>'
+            '弱句/逻辑/衔接 — 看右侧解释（标号对应）'
+            '</div>',
+            unsafe_allow_html=True
         )
-        is_basic = "基础版" in version
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
+        # ── 逐段渲染:左原文 / 右批改 ────────────
         for p in paragraphs:
             para_num = p.get('para_num', '?')
             para_role = p.get('para_role', '')
             original = p.get('original_text', '')
-            lang_iss = p.get('language_issues', [])
+            # 兼容老数据:有些可能还是 language_issues
+            red_list = p.get('red_issues', []) or []
+            green_list = p.get('green_issues', []) or []
+            if not red_list and not green_list and 'language_issues' in p:
+                # 老结构:把所有 language_issues 当成红色
+                old_iss = p.get('language_issues', [])
+                for it in old_iss:
+                    t = it.get('type', '')
+                    if any(k in t for k in ['弱句', '逻辑', '衔接']):
+                        green_list.append({
+                            'type': t, 'original': it.get('original', ''),
+                            'issue_detail': it.get('explanation', ''),
+                            'suggestion': it.get('improved', '')
+                        })
+                    else:
+                        red_list.append(it)
+
             struct_iss = p.get('structure_content_issues', [])
             highlights = p.get('highlights', '')
-            revised = p.get('revised_basic' if is_basic else 'revised_advanced', '')
+            revised_b = p.get('revised_basic', '')
+            revised_a = p.get('revised_advanced', '')
 
-            # 段落标题
-            st.markdown(f"""
-            <div style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-radius:10px 10px 0 0;
-                padding:0.7rem 1rem;color:#f0c27f;font-family:'Noto Serif SC',serif;
-                font-size:1rem;font-weight:600;margin-top:1.2rem;">
-                第 {para_num} 段 · {para_role}
-            </div>
-            """, unsafe_allow_html=True)
+            # 段落标题(横跨整行)
+            st.markdown(
+                f'<div class="para-card">第 {para_num} 段 · {para_role}</div>',
+                unsafe_allow_html=True
+            )
 
-            # 学生原文
-            st.markdown(f"""
-            <div style="background:#fafaf0;border:1px solid #e8e0d5;border-top:none;
-                padding:1rem 1.2rem;font-size:0.95rem;line-height:1.9;color:#2c2c2a;">
-                <div style="font-size:0.75rem;color:#888;margin-bottom:0.4rem;font-weight:600;">
-                    📝 你的原文
-                </div>
-                {original}
-            </div>
-            """, unsafe_allow_html=True)
+            # 左右两列
+            col_left, col_right = st.columns([1, 1], gap="small")
 
-            # 亮点(如有)
-            if highlights:
-                st.markdown(f"""
-                <div style="background:#e8f5e9;border-left:4px solid #43a047;
-                    padding:0.6rem 1rem;margin-top:0.4rem;border-radius:4px;">
-                    <span style="color:#2e7d32;font-size:0.85rem;font-weight:600;">✨ 这段亮点：</span>
-                    <span style="color:#1b5e20;font-size:0.88rem;">{highlights}</span>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # 语言问题(红色框)
-            if lang_iss:
-                lang_html = ""
-                for li in lang_iss:
-                    li_type = li.get('type', '问题')
-                    li_orig = li.get('original', '')
-                    li_imp = li.get('improved', '')
-                    li_exp = li.get('explanation', '')
-                    lang_html += (
-                        '<div style="background:white;border-radius:6px;padding:0.6rem 0.8rem;margin:0.4rem 0;font-size:0.88rem;">'
-                        f'<span style="background:#c62828;color:white;border-radius:4px;padding:0.1rem 0.5rem;font-size:0.75rem;margin-right:0.5rem;">{li_type}</span>'
-                        f'<span style="color:#c62828;text-decoration:line-through;">{li_orig}</span>'
-                        '<span style="color:#888;margin:0 0.3rem;">→</span>'
-                        f'<span style="color:#2e7d32;font-weight:500;">{li_imp}</span>'
-                        f'<div style="color:#666;font-size:0.78rem;margin-top:0.2rem;margin-left:0.5rem;">💡 {li_exp}</div>'
-                        '</div>'
-                    )
+            with col_left:
+                highlighted = build_highlighted_paragraph(original, red_list, green_list)
                 st.markdown(
-                    '<div style="background:#ffebee;border-left:4px solid #c62828;padding:0.7rem 1rem;margin-top:0.4rem;border-radius:4px;">'
-                    '<div style="color:#c62828;font-weight:600;font-size:0.85rem;margin-bottom:0.4rem;">🔴 语言问题（错字 / 病句 / 弱句）</div>'
-                    f'{lang_html}'
-                    '</div>',
+                    f'<div class="left-orig">'
+                    f'<div style="font-size:0.75rem;color:#888;margin-bottom:0.6rem;font-weight:600;">'
+                    f'📝 你的原文</div>'
+                    f'<div>{highlighted}</div>'
+                    f'</div>',
                     unsafe_allow_html=True
                 )
 
-            # 结构内容问题(蓝色框)
-            if struct_iss:
-                struct_html = ""
-                for si in struct_iss:
-                    si_aspect = si.get('aspect', '')
-                    si_problem = si.get('problem', '')
-                    si_sugg = si.get('suggestion', '')
-                    struct_html += (
-                        '<div style="background:white;border-radius:6px;padding:0.6rem 0.8rem;margin:0.4rem 0;font-size:0.88rem;">'
-                        f'<div style="color:#1565c0;font-weight:600;margin-bottom:0.3rem;">📐 {si_aspect}</div>'
-                        f'<div style="color:#5d3700;margin-bottom:0.3rem;">问题：{si_problem}</div>'
-                        f'<div style="color:#1b5e20;">💡 建议：{si_sugg}</div>'
-                        '</div>'
-                    )
-                st.markdown(
-                    '<div style="background:#e3f2fd;border-left:4px solid #1565c0;padding:0.7rem 1rem;margin-top:0.4rem;border-radius:4px;">'
-                    '<div style="color:#0d47a1;font-weight:600;font-size:0.85rem;margin-bottom:0.4rem;">🔵 结构与内容批改</div>'
-                    f'{struct_html}'
-                    '</div>',
-                    unsafe_allow_html=True
+            with col_right:
+                # 拼接右侧 HTML
+                right_parts = ['<div class="right-fb">']
+                right_parts.append(
+                    '<div style="font-size:0.75rem;color:#888;margin-bottom:0.6rem;font-weight:600;">'
+                    '🎯 老师批改</div>'
                 )
 
-            # 修改示范(根据用户选择显示基础版或进阶版)
-            version_label = "📘 基础版修改" if is_basic else "🌟 进阶版修改"
-            version_color = "#558b2f" if is_basic else "#6a1b9a"
-            version_bg = "#f1f8e9" if is_basic else "#f3e5f5"
-            st.markdown(f"""
-            <div style="background:{version_bg};border-left:4px solid {version_color};
-                padding:1rem 1.2rem;margin-top:0.5rem;border-radius:4px;">
-                <div style="color:{version_color};font-weight:600;font-size:0.9rem;
-                    margin-bottom:0.5rem;">{version_label}</div>
-                <div style="color:#2c2c2a;font-size:0.95rem;line-height:1.9;">
-                    {revised}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+                # 1. 这段亮点
+                if highlights:
+                    right_parts.append(
+                        '<div style="background:#e8f5e9;border-left:3px solid #43a047;'
+                        'padding:0.5rem 0.7rem;margin-bottom:0.5rem;border-radius:4px;font-size:0.85rem;">'
+                        f'<b style="color:#2e7d32;">✨ 亮点：</b>'
+                        f'<span style="color:#1b5e20;">{html_escape(highlights)}</span>'
+                        '</div>'
+                    )
+
+                # 2. 绿色问题详解（编号对应原文绿色高亮）
+                if green_list:
+                    right_parts.append(
+                        '<div style="margin-top:0.5rem;">'
+                        '<div style="font-size:0.85rem;font-weight:600;color:#2e7d32;margin-bottom:0.4rem;">'
+                        '🟢 弱句 / 逻辑 / 衔接（点击原文绿色对应）'
+                        '</div>'
+                    )
+                    for i, g in enumerate(green_list):
+                        g_type = html_escape(g.get('type', '弱句'))
+                        g_orig = html_escape(g.get('original', ''))
+                        g_detail = html_escape(g.get('issue_detail', ''))
+                        g_sugg = html_escape(g.get('suggestion', ''))
+                        right_parts.append(
+                            '<div style="background:#f1f8e9;border-radius:5px;'
+                            'padding:0.5rem 0.7rem;margin:0.3rem 0;font-size:0.83rem;'
+                            'border-left:3px solid #43a047;">'
+                            f'<div style="color:#2e7d32;font-weight:600;margin-bottom:0.2rem;">'
+                            f'<span style="background:#43a047;color:white;border-radius:50%;'
+                            f'padding:0 0.3rem;font-size:0.7rem;margin-right:0.3rem;">{i+1}</span>'
+                            f'{g_type}'
+                            f'</div>'
+                            f'<div style="color:#555;font-style:italic;font-size:0.78rem;margin:0.2rem 0;">'
+                            f'「{g_orig}」</div>'
+                            f'<div style="color:#5d3700;margin:0.2rem 0;"><b>问题：</b>{g_detail}</div>'
+                            f'<div style="color:#1b5e20;"><b>💡 建议：</b>{g_sugg}</div>'
+                            '</div>'
+                        )
+                    right_parts.append('</div>')
+
+                # 3. 红色错字病句汇总(简洁列表,详情看悬停)
+                if red_list:
+                    red_summary = []
+                    for r in red_list:
+                        r_orig = html_escape(r.get('original', ''))
+                        r_imp = html_escape(r.get('improved', ''))
+                        red_summary.append(
+                            f'<span style="display:inline-block;background:#ffebee;'
+                            f'border-radius:4px;padding:0.15rem 0.5rem;margin:0.15rem 0.2rem;'
+                            f'font-size:0.8rem;border:1px solid #ffcdd2;">'
+                            f'<span style="color:#c62828;text-decoration:line-through;">{r_orig}</span>'
+                            f' → <span style="color:#2e7d32;font-weight:500;">{r_imp}</span>'
+                            f'</span>'
+                        )
+                    right_parts.append(
+                        '<div style="margin-top:0.6rem;">'
+                        '<div style="font-size:0.85rem;font-weight:600;color:#c62828;margin-bottom:0.3rem;">'
+                        f'🔴 错字 / 病句（{len(red_list)} 处）'
+                        '</div>'
+                        f'<div>{"".join(red_summary)}</div>'
+                        '</div>'
+                    )
+
+                # 4. 结构与内容批改
+                if struct_iss:
+                    right_parts.append(
+                        '<div style="margin-top:0.6rem;">'
+                        '<div style="font-size:0.85rem;font-weight:600;color:#1565c0;margin-bottom:0.3rem;">'
+                        '📐 结构与内容批改'
+                        '</div>'
+                    )
+                    for si in struct_iss:
+                        si_aspect = html_escape(si.get('aspect', ''))
+                        si_problem = html_escape(si.get('problem', ''))
+                        si_sugg = html_escape(si.get('suggestion', ''))
+                        right_parts.append(
+                            '<div style="background:#e3f2fd;border-radius:5px;'
+                            'padding:0.5rem 0.7rem;margin:0.3rem 0;font-size:0.83rem;'
+                            'border-left:3px solid #1565c0;">'
+                            f'<div style="color:#0d47a1;font-weight:600;margin-bottom:0.2rem;">'
+                            f'📐 {si_aspect}</div>'
+                            f'<div style="color:#5d3700;margin:0.15rem 0;"><b>问题：</b>{si_problem}</div>'
+                            f'<div style="color:#1b5e20;"><b>💡 建议：</b>{si_sugg}</div>'
+                            '</div>'
+                        )
+                    right_parts.append('</div>')
+
+                right_parts.append('</div>')  # close right-fb
+                st.markdown(''.join(right_parts), unsafe_allow_html=True)
+
+            # ── 段落级基础/进阶版按钮 ────────────────
+            # 用 session_state 记住每段选了哪个版本
+            ver_key = f"para_ver_{para_num}"
+            if ver_key not in st.session_state:
+                st.session_state[ver_key] = "basic"
+
+            btn_col1, btn_col2, _ = st.columns([1, 1, 4])
+            with btn_col1:
+                if st.button(
+                    f"📘 基础版" + (" ✓" if st.session_state[ver_key]=="basic" else ""),
+                    key=f"btn_b_{para_num}", use_container_width=True
+                ):
+                    st.session_state[ver_key] = "basic"
+                    st.rerun()
+            with btn_col2:
+                if st.button(
+                    f"🌟 进阶版" + (" ✓" if st.session_state[ver_key]=="advanced" else ""),
+                    key=f"btn_a_{para_num}", use_container_width=True
+                ):
+                    st.session_state[ver_key] = "advanced"
+                    st.rerun()
+
+            # 显示选中的版本
+            cur_ver = st.session_state[ver_key]
+            cur_revised = revised_b if cur_ver == "basic" else revised_a
+            ver_color = "#558b2f" if cur_ver == "basic" else "#6a1b9a"
+            ver_bg = "#f1f8e9" if cur_ver == "basic" else "#f3e5f5"
+            ver_label = "基础版（小六水平）" if cur_ver == "basic" else "进阶版（A1+水平）"
+
+            st.markdown(
+                f'<div style="background:{ver_bg};border-left:4px solid {ver_color};'
+                f'padding:0.9rem 1.1rem;margin:0.4rem 0 1.5rem;border-radius:6px;">'
+                f'<div style="color:{ver_color};font-weight:600;font-size:0.85rem;'
+                f'margin-bottom:0.4rem;">📝 {ver_label}修改</div>'
+                f'<div style="color:#2c2c2a;font-size:0.93rem;line-height:1.85;">'
+                f'{html_escape(cur_revised)}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
     # ══════════════════════════════════════════════════════════
     # 模块 5:整篇范文 + 原文对比
@@ -863,14 +1129,35 @@ elif st.session_state['feedback']:
     st.markdown("<br>", unsafe_allow_html=True)
     if paragraphs:
         student_full_text = st.session_state.get('ocr_text', '')
-        full_model = model_basic if is_basic else model_advanced
-        version_name = "基础版" if is_basic else "进阶版"
 
-        st.markdown(f"### 📖 整篇范文对比（{version_name}）")
+        # 整篇范文的独立切换
+        if 'model_essay_ver' not in st.session_state:
+            st.session_state['model_essay_ver'] = 'basic'
+
+        st.markdown("### 📖 整篇范文对比")
+        m_col1, m_col2, _ = st.columns([1, 1, 4])
+        with m_col1:
+            if st.button(
+                "📘 基础版" + (" ✓" if st.session_state['model_essay_ver']=='basic' else ""),
+                key="model_essay_b", use_container_width=True
+            ):
+                st.session_state['model_essay_ver'] = 'basic'
+                st.rerun()
+        with m_col2:
+            if st.button(
+                "🌟 进阶版" + (" ✓" if st.session_state['model_essay_ver']=='advanced' else ""),
+                key="model_essay_a", use_container_width=True
+            ):
+                st.session_state['model_essay_ver'] = 'advanced'
+                st.rerun()
+
+        m_ver = st.session_state['model_essay_ver']
+        full_model = model_basic if m_ver == 'basic' else model_advanced
+        version_name = "基础版" if m_ver == 'basic' else "进阶版"
 
         if full_model:
-            model_color = "#558b2f" if is_basic else "#6a1b9a"
-            model_bg = "#f1f8e9" if is_basic else "#f3e5f5"
+            model_color = "#558b2f" if m_ver == 'basic' else "#6a1b9a"
+            model_bg = "#f1f8e9" if m_ver == 'basic' else "#f3e5f5"
 
             col_orig, col_revised = st.columns(2)
             with col_orig:
@@ -882,7 +1169,7 @@ elif st.session_state['feedback']:
                     '<div style="font-size:0.8rem;color:#666;font-weight:600;margin-bottom:0.6rem;">'
                     '📝 你的原文'
                     '</div>'
-                    f'{student_full_text}'
+                    f'{html_escape(student_full_text)}'
                     '</div>',
                     unsafe_allow_html=True
                 )
@@ -895,7 +1182,7 @@ elif st.session_state['feedback']:
                     f'<div style="font-size:0.8rem;color:{model_color};font-weight:600;margin-bottom:0.6rem;">'
                     f'✨ {version_name}范文'
                     '</div>'
-                    f'{full_model}'
+                    f'{html_escape(full_model)}'
                     '</div>',
                     unsafe_allow_html=True
                 )
