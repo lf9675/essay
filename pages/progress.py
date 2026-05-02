@@ -15,6 +15,9 @@ h1,h2,h3 { font-family: 'Noto Serif SC', serif; }
 [data-testid="stSidebar"] { display: none; }
 [data-testid="collapsedControl"] { display: none; }
 section[data-testid="stSidebarUserContent"] { display: none; }
+.block-container { padding-top: 3.5rem; padding-bottom: 2rem; }
+header[data-testid="stHeader"] { background: transparent; }
+.stApp > header { background: transparent; }
 .page-header {
     background: linear-gradient(135deg, #1a1a2e, #0f3460);
     color: white; border-radius: 16px; padding: 1.5rem 2rem;
