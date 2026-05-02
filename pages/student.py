@@ -318,11 +318,16 @@ elif st.session_state['ocr_done'] and not st.session_state['feedback']:
                     with st.spinner("AI 正在批改你的作文，请稍候约40秒……"):
                         response = client.messages.create(
                             model="claude-sonnet-4-5",
-                            max_tokens=8000,
+                            max_tokens=16000,
                             system=system_prompt,
                             messages=[{"role": "user", "content": user_msg}]
                         )
                     raw = response.content[0].text.strip()
+
+                    # 检测是否被 max_tokens 截断
+                    stop_reason = getattr(response, 'stop_reason', None)
+                    if stop_reason == 'max_tokens':
+                        st.warning("⚠️ AI 输出过长被截断了，正在尝试修复…")
 
                     # 清理markdown标记
                     if "```" in raw:
@@ -378,23 +383,85 @@ elif st.session_state['ocr_done'] and not st.session_state['feedback']:
                                     else:
                                         # 非法双引号，替换成中文引号
                                         result.append('\u201c' if len(result) > 0 else '\u201d')
+                            elif c == '\n' and in_string:
+                                # 字符串内的裸换行符 → 转义成 \n
+                                result.append('\\n')
+                            elif c == '\r' and in_string:
+                                result.append('\\n')
                             else:
                                 result.append(c)
                             i += 1
                         return ''.join(result)
 
+                    def try_recover_truncated_json(s):
+                        """如果 JSON 被截断，尝试关闭未关闭的字符串/对象/数组"""
+                        s = s.rstrip()
+                        # 找到最后一个完整的字段（以 } 或 ] 结束的）
+                        # 从尾部往回找，截到最后一个有效结构处
+                        last_safe = -1
+                        depth_brace = 0
+                        depth_bracket = 0
+                        in_str = False
+                        esc = False
+                        for i, c in enumerate(s):
+                            if esc:
+                                esc = False
+                                continue
+                            if c == '\\':
+                                esc = True
+                                continue
+                            if c == '"':
+                                in_str = not in_str
+                                continue
+                            if in_str:
+                                continue
+                            if c == '{': depth_brace += 1
+                            elif c == '}':
+                                depth_brace -= 1
+                                if depth_brace == 0 and depth_bracket == 0:
+                                    last_safe = i + 1
+                            elif c == '[': depth_bracket += 1
+                            elif c == ']':
+                                depth_bracket -= 1
+                                if depth_brace == 0 and depth_bracket == 0:
+                                    last_safe = i + 1
+
+                        # 如果找到了完整的顶层结构
+                        if last_safe > 0:
+                            return s[:last_safe]
+
+                        # 否则尝试强制闭合
+                        if in_str:
+                            s = s + '"'
+                        # 删掉最后一个不完整的字段（找最后一个逗号）
+                        last_comma = s.rfind(',')
+                        if last_comma > 0:
+                            s = s[:last_comma]
+                        # 补上缺失的括号
+                        s = s + (']' * depth_bracket) + ('}' * depth_brace)
+                        return s
+
+                    feedback = None
                     try:
                         feedback = json.loads(raw)
                     except json.JSONDecodeError:
-                        # 尝试修复引号问题
+                        # 第一层：修复引号 + 换行符
                         fixed = fix_json_quotes(raw)
                         try:
                             feedback = json.loads(fixed)
-                        except json.JSONDecodeError as parse_err:
-                            st.error(f"JSON解析失败：{parse_err}")
-                            st.text("AI原始返回（用于调试）：")
-                            st.code(raw[:1500])
-                            st.stop()
+                        except json.JSONDecodeError:
+                            # 第二层：尝试恢复截断的 JSON
+                            recovered = try_recover_truncated_json(fixed)
+                            try:
+                                feedback = json.loads(recovered)
+                                st.info("✓ AI 输出被截断，已自动恢复部分内容")
+                            except json.JSONDecodeError as parse_err:
+                                st.error(f"❌ JSON解析失败：{parse_err}")
+                                st.text(f"出错位置：第 {parse_err.lineno} 行，第 {parse_err.colno} 列")
+                                st.text(f"AI 总输出长度：{len(raw)} 字符")
+                                with st.expander("查看 AI 原始返回（用于调试）"):
+                                    st.code(raw)
+                                st.stop()
 
                     sub_id = save_submission(
                         asgn['id'],
