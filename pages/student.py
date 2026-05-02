@@ -985,20 +985,34 @@ elif st.session_state['feedback']:
                 )
 
             with col_right:
-                # ─────── 右栏纯 HTML 部分(亮点 + 绿色弱句) ───────
+                # ─────── 右栏纯 HTML 部分(亮点 + 不足 + 绿色弱句) ───────
                 right_parts = ['<div class="right-fb">']
 
-                # 1. 亮点(如有)
+                # 1. Strengths(紧凑一行)
                 if highlights:
                     right_parts.append(
                         '<div style="background:#e8f5e9;border-left:3px solid #43a047;'
-                        'padding:0.5rem 0.7rem;margin-bottom:0.5rem;border-radius:4px;font-size:0.85rem;">'
+                        'padding:0.35rem 0.7rem;margin-bottom:0.4rem;border-radius:4px;'
+                        'font-size:0.83rem;line-height:1.5;">'
                         f'<b style="color:#2e7d32;">Strengths：</b>'
                         f'<span style="color:#1b5e20;">{html_escape(highlights)}</span>'
                         '</div>'
                     )
 
-                # 2. 绿色弱句解释 — 编号对应原文
+                # 2. 不足:错字病句简短一行(详情看左边悬停)
+                if red_list:
+                    right_parts.append(
+                        '<div style="background:#ffebee;border-left:3px solid #c62828;'
+                        'padding:0.35rem 0.7rem;margin-bottom:0.4rem;border-radius:4px;'
+                        'font-size:0.83rem;line-height:1.5;">'
+                        f'<b style="color:#c62828;">不足：</b>'
+                        f'<span style="color:#5d3700;">{len(red_list)} 处错字 / 病句</span>'
+                        '<span style="color:#888;font-size:0.75rem;margin-left:0.4rem;">'
+                        '（鼠标悬停左边红色字看正确写法）</span>'
+                        '</div>'
+                    )
+
+                # 3. 绿色弱句解释 — 编号对应原文
                 if green_list:
                     for i, g in enumerate(green_list):
                         g_orig = html_escape(g.get('original', ''))
@@ -1006,14 +1020,14 @@ elif st.session_state['feedback']:
                         g_sugg = html_escape(g.get('suggestion', ''))
                         right_parts.append(
                             '<div style="background:#f1f8e9;border-radius:5px;'
-                            'padding:0.5rem 0.7rem;margin:0.3rem 0;font-size:0.85rem;'
-                            'border-left:3px solid #43a047;">'
-                            f'<div style="color:#2e7d32;font-weight:600;margin-bottom:0.2rem;font-size:0.8rem;">'
+                            'padding:0.45rem 0.7rem;margin:0.3rem 0;font-size:0.83rem;'
+                            'border-left:3px solid #43a047;line-height:1.55;">'
+                            f'<div style="color:#2e7d32;font-weight:600;margin-bottom:0.15rem;font-size:0.78rem;">'
                             f'<span style="background:#43a047;color:white;border-radius:50%;'
                             f'padding:0 0.35rem;font-size:0.7rem;margin-right:0.4rem;">{i+1}</span>'
                             f'「{g_orig}」'
                             f'</div>'
-                            f'<div style="color:#5d3700;margin:0.2rem 0;"><b>Issue：</b>{g_detail}</div>'
+                            f'<div style="color:#5d3700;margin:0.15rem 0;"><b>Issue：</b>{g_detail}</div>'
                             f'<div style="color:#1b5e20;"><b>Suggestion：</b>{g_sugg}</div>'
                             '</div>'
                         )
