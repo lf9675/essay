@@ -1,7 +1,7 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="华文作文批改平台",
+    page_title="CLever · 华文通",
     page_icon="📝",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -166,8 +166,8 @@ header[data-testid="stHeader"] { background: transparent; }
 st.markdown("""
 <div class="top-bar">
     <div>
-        <span class="brand">📝 华文作文批改平台</span>
-        <span class="brand-sub">SEAB 评分标准 · AI 智能批改</span>
+        <span class="brand">CLever · 华文通</span>
+        <span class="brand-sub">AI 华文学习平台 · 新加坡 SEAB 评分标准</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -193,7 +193,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════
 st.markdown("""
 <div class="welcome-card">
-    <h2>欢迎使用华文作文批改平台</h2>
+    <h2>CLever · 华文通</h2>
     <p>新加坡中学华文 / 高级华文 · 基于考评局官方评分标准的 AI 段落式专业批改</p>
 </div>
 """, unsafe_allow_html=True)
