@@ -354,18 +354,26 @@ elif st.session_state['ocr_done'] and not st.session_state['feedback']:
                         essay_text=corrected_text,
                     )
 
-                    # ── API调用：批改+范文一次完成 ───────────
+                    # ── API调用：用 streaming 模式避免长输出超时 ───────────
                     with st.spinner("AI 正在批改你的作文，请稍候约40秒……"):
-                        response = client.messages.create(
+                        # max_tokens 16000 够用(已删除 model_essay 字段节省了 ~4000 tokens)
+                        # 用 streaming 模式提高稳定性,避免长输出错误
+                        full_text_chunks = []
+                        stop_reason = None
+                        with client.messages.stream(
                             model="claude-sonnet-4-5",
-                            max_tokens=32000,
+                            max_tokens=16000,
                             system=system_prompt,
                             messages=[{"role": "user", "content": user_msg}]
-                        )
-                    raw = response.content[0].text.strip()
+                        ) as stream:
+                            for text_chunk in stream.text_stream:
+                                full_text_chunks.append(text_chunk)
+                            # 拿最终 message 看 stop_reason
+                            final_message = stream.get_final_message()
+                            stop_reason = final_message.stop_reason
+                    raw = ''.join(full_text_chunks).strip()
 
                     # 检测是否被 max_tokens 截断
-                    stop_reason = getattr(response, 'stop_reason', None)
                     if stop_reason == 'max_tokens':
                         st.warning("⚠️ AI 输出过长被截断了，正在尝试修复…")
 
