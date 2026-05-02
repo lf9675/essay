@@ -109,7 +109,7 @@ st.markdown("""
     align-items:center;flex-wrap:wrap;gap:1rem;box-shadow:0 4px 16px rgba(0,0,0,0.08);">
     <div>
         <span style="color:#f0c27f;font-family:'Noto Serif SC',serif;font-size:1.15rem;font-weight:700;">
-            📝 华文作文批改平台
+            CLever · 华文通
         </span>
         <span style="color:#b8c5d6;font-size:0.8rem;margin-left:0.5rem;">
             教师管理后台
