@@ -1047,32 +1047,117 @@ elif st.session_state['feedback']:
                         '</div>'
                     )
 
-                # 4. 结构与内容批改
+                # 4. 结构与内容批改 — 移到右侧 column 后的独立 Streamlit 区域
+                # （留个占位标记,真正的渲染在外面,因为需要 st.audio）
                 if struct_iss:
                     right_parts.append(
-                        '<div style="margin-top:0.6rem;">'
-                        '<div style="font-size:0.85rem;font-weight:600;color:#1565c0;margin-bottom:0.3rem;">'
-                        '📐 结构与内容批改'
+                        '<div style="margin-top:0.6rem;background:#fafbfc;'
+                        'border:1px dashed #c5d4e3;border-radius:5px;padding:0.5rem 0.7rem;'
+                        'font-size:0.82rem;color:#5d3700;">'
+                        f'📐 这段有 <b>{len(struct_iss)}</b> 处结构 / 内容问题 — '
+                        '<span style="color:#888;font-size:0.78rem;">'
+                        '详见下方"老师讲解"（含中英文语音）'
+                        '</span>'
                         '</div>'
                     )
-                    for si in struct_iss:
-                        si_aspect = html_escape(si.get('aspect', ''))
-                        si_problem = html_escape(si.get('problem', ''))
-                        si_sugg = html_escape(si.get('suggestion', ''))
-                        right_parts.append(
-                            '<div style="background:#e3f2fd;border-radius:5px;'
-                            'padding:0.5rem 0.7rem;margin:0.3rem 0;font-size:0.83rem;'
-                            'border-left:3px solid #1565c0;">'
-                            f'<div style="color:#0d47a1;font-weight:600;margin-bottom:0.2rem;">'
-                            f'📐 {si_aspect}</div>'
-                            f'<div style="color:#5d3700;margin:0.15rem 0;"><b>问题：</b>{si_problem}</div>'
-                            f'<div style="color:#1b5e20;"><b>💡 建议：</b>{si_sugg}</div>'
-                            '</div>'
-                        )
-                    right_parts.append('</div>')
 
                 right_parts.append('</div>')  # close right-fb
                 st.markdown(''.join(right_parts), unsafe_allow_html=True)
+
+            # ── 结构与内容批改详情区(整段宽度,支持中英文语音) ──
+            if struct_iss:
+                st.markdown(
+                    '<div style="margin-top:0.8rem;background:#f8fafd;'
+                    'border:1px solid #d4e3f5;border-radius:8px;padding:0.9rem 1rem;">'
+                    '<div style="color:#0d47a1;font-weight:600;font-size:0.95rem;margin-bottom:0.6rem;'
+                    'font-family:\'Noto Serif SC\',serif;">'
+                    f'📐 第 {para_num} 段 · 结构与内容批改'
+                    '</div></div>',
+                    unsafe_allow_html=True
+                )
+
+                for si_idx, si in enumerate(struct_iss):
+                    si_aspect = si.get('aspect', '')
+                    si_problem = si.get('problem', '')
+                    si_sugg = si.get('suggestion', '')
+                    si_example = si.get('example', '')
+                    si_voice_zh = si.get('voice_zh', '')
+                    si_voice_en = si.get('voice_en', '')
+
+                    # 蓝色卡片显示问题/建议/范例
+                    si_html = (
+                        '<div style="background:#e3f2fd;border-radius:6px;'
+                        'padding:0.7rem 1rem;margin:0.4rem 0;font-size:0.88rem;'
+                        'border-left:4px solid #1565c0;">'
+                        f'<div style="color:#0d47a1;font-weight:600;margin-bottom:0.4rem;font-size:0.92rem;">'
+                        f'📐 {html_escape(si_aspect)}</div>'
+                        f'<div style="color:#5d3700;margin:0.3rem 0;"><b>问题：</b>{html_escape(si_problem)}</div>'
+                        f'<div style="color:#1b5e20;margin:0.3rem 0;"><b>💡 建议：</b>{html_escape(si_sugg)}</div>'
+                    )
+                    if si_example:
+                        si_html += (
+                            '<div style="background:white;border-radius:5px;'
+                            'padding:0.5rem 0.7rem;margin-top:0.4rem;border:1px solid #c5d4e3;">'
+                            '<div style="color:#888;font-size:0.78rem;margin-bottom:0.2rem;">'
+                            '📝 修改示例（基础版水平）'
+                            '</div>'
+                            f'<div style="color:#2c2c2a;line-height:1.7;">{html_escape(si_example)}</div>'
+                            '</div>'
+                        )
+                    si_html += '</div>'
+                    st.markdown(si_html, unsafe_allow_html=True)
+
+                    # 中英文语音 - 用 expander 收纳,默认折叠不占空间
+                    if si_voice_zh or si_voice_en:
+                        v_col1, v_col2 = st.columns(2)
+                        with v_col1:
+                            if si_voice_zh:
+                                with st.expander(f"🔊 听老师讲解（中文）", expanded=False):
+                                    try:
+                                        import asyncio, edge_tts, io as _io
+                                        async def _gen_si_audio_zh(text):
+                                            com = edge_tts.Communicate(
+                                                text,
+                                                voice="zh-CN-XiaoxiaoNeural",
+                                                rate="-5%"
+                                            )
+                                            buf = _io.BytesIO()
+                                            async for chunk in com.stream():
+                                                if chunk["type"] == "audio":
+                                                    buf.write(chunk["data"])
+                                            buf.seek(0); return buf
+                                        st.audio(
+                                            asyncio.run(_gen_si_audio_zh(si_voice_zh)),
+                                            format="audio/mp3"
+                                        )
+                                        st.caption(si_voice_zh)
+                                    except Exception as e:
+                                        st.caption(f"语音不可用：{e}")
+                                        st.write(si_voice_zh)
+                        with v_col2:
+                            if si_voice_en:
+                                with st.expander(f"🔊 Listen (English)", expanded=False):
+                                    try:
+                                        import asyncio, edge_tts, io as _io
+                                        async def _gen_si_audio_en(text):
+                                            com = edge_tts.Communicate(
+                                                text,
+                                                voice="en-US-JennyNeural",
+                                                rate="-5%"
+                                            )
+                                            buf = _io.BytesIO()
+                                            async for chunk in com.stream():
+                                                if chunk["type"] == "audio":
+                                                    buf.write(chunk["data"])
+                                            buf.seek(0); return buf
+                                        st.audio(
+                                            asyncio.run(_gen_si_audio_en(si_voice_en)),
+                                            format="audio/mp3"
+                                        )
+                                        st.caption(si_voice_en)
+                                    except Exception as e:
+                                        st.caption(f"Audio unavailable: {e}")
+                                        st.write(si_voice_en)
 
             # ── 段落级基础/进阶版按钮 ────────────────
             # 用 session_state 记住每段选了哪个版本
