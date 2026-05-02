@@ -23,10 +23,14 @@ section[data-testid="stSidebarUserContent"] { display: none; }
 /* 主体 */
 .main { background: #faf8f5; }
 .block-container {
-    padding-top: 1rem;
+    padding-top: 3.5rem;
     padding-bottom: 2rem;
     max-width: 1400px;
 }
+
+/* 隐藏 Streamlit 顶部装饰栏 */
+header[data-testid="stHeader"] { background: transparent; }
+.stApp > header { background: transparent; }
 
 /* ── 顶部品牌栏 + 导航 ── */
 .top-bar {
