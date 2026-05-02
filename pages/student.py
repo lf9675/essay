@@ -358,7 +358,7 @@ elif st.session_state['ocr_done'] and not st.session_state['feedback']:
                     with st.spinner("AI 正在批改你的作文，请稍候约40秒……"):
                         response = client.messages.create(
                             model="claude-sonnet-4-5",
-                            max_tokens=16000,
+                            max_tokens=32000,
                             system=system_prompt,
                             messages=[{"role": "user", "content": user_msg}]
                         )
@@ -481,27 +481,96 @@ elif st.session_state['ocr_done'] and not st.session_state['feedback']:
                         s = s + (']' * depth_bracket) + ('}' * depth_brace)
                         return s
 
+                    def aggressive_json_clean(s):
+                        """更激进的清洗:处理常见 AI 输出错误"""
+                        import re as _re
+                        # 1. 把字符串内的中文双引号换成中文方括号
+                        # 2. 把字符串内的英文单引号统一保留
+                        # 3. 把 JSON 结构外的 markdown 代码块去掉
+                        s = s.strip()
+                        if s.startswith('```'):
+                            # 移除 markdown 代码块标记
+                            s = _re.sub(r'^```(?:json)?\s*', '', s)
+                            s = _re.sub(r'\s*```$', '', s)
+                        # 找到第一个 { 和最后一个 }
+                        first_brace = s.find('{')
+                        last_brace = s.rfind('}')
+                        if first_brace >= 0 and last_brace > first_brace:
+                            s = s[first_brace:last_brace + 1]
+                        return s
+
+                    def extract_partial_feedback(raw_text):
+                        """终极兜底:从损坏的 JSON 里手动用正则提取关键字段"""
+                        import re as _re
+                        result = {}
+                        # 提取 scores
+                        sc_match = _re.search(r'"scores"\s*:\s*\{([^}]+)\}', raw_text)
+                        if sc_match:
+                            sc_str = sc_match.group(1)
+                            try:
+                                content = int(_re.search(r'"content"\s*:\s*(\d+)', sc_str).group(1))
+                                language = int(_re.search(r'"language"\s*:\s*(\d+)', sc_str).group(1))
+                                total_m = _re.search(r'"total"\s*:\s*(\d+)', sc_str)
+                                total = int(total_m.group(1)) if total_m else content + language
+                                result['scores'] = {'content': content, 'language': language, 'total': total}
+                            except (AttributeError, ValueError):
+                                pass
+                        # 提取 grade_estimate
+                        gm = _re.search(r'"grade_estimate"\s*:\s*"([^"]+)"', raw_text)
+                        if gm: result['grade_estimate'] = gm.group(1)
+                        # 提取 grade_distance
+                        gd = _re.search(r'"grade_distance"\s*:\s*"([^"]+)"', raw_text)
+                        if gd: result['grade_distance'] = gd.group(1)
+                        # 提取 audio_script
+                        au = _re.search(r'"audio_script"\s*:\s*"([^"]+)"', raw_text)
+                        if au: result['audio_script'] = au.group(1)
+                        # 提取 overall_suggestion
+                        ov = _re.search(r'"overall_suggestion"\s*:\s*"([^"]+)"', raw_text)
+                        if ov: result['overall_suggestion'] = ov.group(1)
+                        # 提取 encouragement
+                        en = _re.search(r'"encouragement"\s*:\s*"([^"]+)"', raw_text)
+                        if en: result['encouragement'] = en.group(1)
+                        # 默认空段落
+                        result.setdefault('paragraph_feedback', [])
+                        result.setdefault('coaching_advice', [])
+                        result.setdefault('strengths', [])
+                        return result
+
                     feedback = None
                     try:
                         feedback = json.loads(raw)
                     except json.JSONDecodeError:
-                        # 第一层：修复引号 + 换行符
-                        fixed = fix_json_quotes(raw)
+                        # 第 1 层:激进清洗(去 markdown 代码块、修剪到大括号范围)
+                        cleaned = aggressive_json_clean(raw)
                         try:
-                            feedback = json.loads(fixed)
+                            feedback = json.loads(cleaned)
                         except json.JSONDecodeError:
-                            # 第二层：尝试恢复截断的 JSON
-                            recovered = try_recover_truncated_json(fixed)
+                            # 第 2 层:修复引号 + 换行符
+                            fixed = fix_json_quotes(cleaned)
                             try:
-                                feedback = json.loads(recovered)
-                                st.info("✓ AI 输出被截断，已自动恢复部分内容")
-                            except json.JSONDecodeError as parse_err:
-                                st.error(f"❌ JSON解析失败：{parse_err}")
-                                st.text(f"出错位置：第 {parse_err.lineno} 行，第 {parse_err.colno} 列")
-                                st.text(f"AI 总输出长度：{len(raw)} 字符")
-                                with st.expander("查看 AI 原始返回（用于调试）"):
-                                    st.code(raw)
-                                st.stop()
+                                feedback = json.loads(fixed)
+                            except json.JSONDecodeError:
+                                # 第 3 层:尝试恢复截断的 JSON
+                                recovered = try_recover_truncated_json(fixed)
+                                try:
+                                    feedback = json.loads(recovered)
+                                    st.info("✓ AI 输出被截断,已自动恢复部分内容")
+                                except json.JSONDecodeError:
+                                    # 第 4 层:终极兜底 — 用正则提取关键字段
+                                    feedback = extract_partial_feedback(raw)
+                                    if feedback.get('scores'):
+                                        st.warning(
+                                            "⚠️ AI 输出格式异常,已提取出分数和总评。"
+                                            "段落级批改可能不完整,请重新提交一次以获得完整批改。"
+                                        )
+                                    else:
+                                        st.error(
+                                            "❌ AI 输出严重异常,无法提取批改结果。"
+                                            "请稍后重新提交,或联系管理员。"
+                                        )
+                                        with st.expander("查看 AI 原始返回(用于调试)"):
+                                            st.code(raw[:5000])
+                                        st.stop()
 
                     sub_id = save_submission(
                         asgn['id'],
@@ -554,8 +623,13 @@ elif st.session_state['feedback']:
     encourage = fb.get('encouragement', '')
     coaching = fb.get('coaching_advice', [])
     paragraphs = fb.get('paragraph_feedback', [])
-    model_basic = fb.get('model_essay_basic', '')
-    model_advanced = fb.get('model_essay_advanced', '')
+    # 整篇范文从段落 revised 自动拼起来(不依赖单独字段,节省 AI 输出 token)
+    if paragraphs:
+        model_basic = "\n\n".join([p.get('revised_basic', '') for p in paragraphs if p.get('revised_basic')])
+        model_advanced = "\n\n".join([p.get('revised_advanced', '') for p in paragraphs if p.get('revised_advanced')])
+    else:
+        model_basic = fb.get('model_essay_basic', '')  # 兼容老数据
+        model_advanced = fb.get('model_essay_advanced', '')
 
     if not audio_script:
         audio_script = f"{name}同学，{overall}。{encourage}"
