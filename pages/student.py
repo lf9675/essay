@@ -1099,45 +1099,53 @@ elif st.session_state['feedback']:
                                             st.caption(f"Audio unavailable: {e}")
                                             st.write(si_voice_en)
 
-            # ── 段落级基础/进阶版按钮 ────────────────
-            # 用 session_state 记住每段选了哪个版本
-            ver_key = f"para_ver_{para_num}"
-            if ver_key not in st.session_state:
-                st.session_state[ver_key] = "basic"
-
-            btn_col1, btn_col2, _ = st.columns([1, 1, 4])
-            with btn_col1:
-                if st.button(
-                    f"📘 基础版" + (" ✓" if st.session_state[ver_key]=="basic" else ""),
-                    key=f"btn_b_{para_num}", use_container_width=True
-                ):
+                # ── 段落级基础/进阶版按钮 + 修改示范 (放在右栏内部底部) ──
+                ver_key = f"para_ver_{para_num}"
+                if ver_key not in st.session_state:
                     st.session_state[ver_key] = "basic"
-                    st.rerun()
-            with btn_col2:
-                if st.button(
-                    f"🌟 进阶版" + (" ✓" if st.session_state[ver_key]=="advanced" else ""),
-                    key=f"btn_a_{para_num}", use_container_width=True
-                ):
-                    st.session_state[ver_key] = "advanced"
-                    st.rerun()
 
-            # 显示选中的版本
-            cur_ver = st.session_state[ver_key]
-            cur_revised = revised_b if cur_ver == "basic" else revised_a
-            ver_color = "#558b2f" if cur_ver == "basic" else "#6a1b9a"
-            ver_bg = "#f1f8e9" if cur_ver == "basic" else "#f3e5f5"
-            ver_label = "基础版（小六水平）" if cur_ver == "basic" else "进阶版（A1+水平）"
+                # 分隔线
+                st.markdown(
+                    '<div style="border-top:1px dashed #d4e3f5;margin:0.8rem 0 0.5rem;"></div>',
+                    unsafe_allow_html=True
+                )
 
-            st.markdown(
-                f'<div style="background:{ver_bg};border-left:4px solid {ver_color};'
-                f'padding:0.9rem 1.1rem;margin:0.4rem 0 1.5rem;border-radius:6px;">'
-                f'<div style="color:{ver_color};font-weight:600;font-size:0.85rem;'
-                f'margin-bottom:0.4rem;">📝 {ver_label}修改</div>'
-                f'<div style="color:#2c2c2a;font-size:0.93rem;line-height:1.85;">'
-                f'{html_escape(cur_revised)}</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    if st.button(
+                        "📘 基础版" + (" ✓" if st.session_state[ver_key]=="basic" else ""),
+                        key=f"btn_b_{para_num}", use_container_width=True
+                    ):
+                        st.session_state[ver_key] = "basic"
+                        st.rerun()
+                with btn_col2:
+                    if st.button(
+                        "🌟 进阶版" + (" ✓" if st.session_state[ver_key]=="advanced" else ""),
+                        key=f"btn_a_{para_num}", use_container_width=True
+                    ):
+                        st.session_state[ver_key] = "advanced"
+                        st.rerun()
+
+                # 显示选中的版本修改
+                cur_ver = st.session_state[ver_key]
+                cur_revised = revised_b if cur_ver == "basic" else revised_a
+                ver_color = "#558b2f" if cur_ver == "basic" else "#6a1b9a"
+                ver_bg = "#f1f8e9" if cur_ver == "basic" else "#f3e5f5"
+                ver_label = "Basic (小六水平)" if cur_ver == "basic" else "Advanced (A1+水平)"
+
+                st.markdown(
+                    f'<div style="background:{ver_bg};border-left:3px solid {ver_color};'
+                    f'padding:0.7rem 0.9rem;margin:0.4rem 0 0;border-radius:5px;">'
+                    f'<div style="color:{ver_color};font-weight:500;font-size:0.78rem;'
+                    f'margin-bottom:0.3rem;">📝 {ver_label}</div>'
+                    f'<div style="color:#2c2c2a;font-size:0.88rem;line-height:1.8;">'
+                    f'{html_escape(cur_revised)}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
+            # 段落间距
+            st.markdown('<div style="margin-bottom:1.5rem;"></div>', unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════
     # 模块 5:整篇范文 + 原文对比
