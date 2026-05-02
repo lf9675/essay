@@ -1033,26 +1033,17 @@ elif st.session_state['feedback']:
                         )
                     right_parts.append('</div>')
 
-                # 3. 红色错字病句汇总(简洁列表,详情看悬停)
+                # 3. 红色错字病句 - 只显示数量提示,不重复内容
+                #    （详情通过左边鼠标悬停查看,避免视觉冗余）
                 if red_list:
-                    red_summary = []
-                    for r in red_list:
-                        r_orig = html_escape(r.get('original', ''))
-                        r_imp = html_escape(r.get('improved', ''))
-                        red_summary.append(
-                            f'<span style="display:inline-block;background:#ffebee;'
-                            f'border-radius:4px;padding:0.15rem 0.5rem;margin:0.15rem 0.2rem;'
-                            f'font-size:0.8rem;border:1px solid #ffcdd2;">'
-                            f'<span style="color:#c62828;text-decoration:line-through;">{r_orig}</span>'
-                            f' → <span style="color:#2e7d32;font-weight:500;">{r_imp}</span>'
-                            f'</span>'
-                        )
                     right_parts.append(
-                        '<div style="margin-top:0.6rem;">'
-                        '<div style="font-size:0.85rem;font-weight:600;color:#c62828;margin-bottom:0.3rem;">'
-                        f'🔴 错字 / 病句（{len(red_list)} 处）'
-                        '</div>'
-                        f'<div>{"".join(red_summary)}</div>'
+                        '<div style="margin-top:0.6rem;background:#fff8f8;'
+                        'border:1px dashed #ffcdd2;border-radius:5px;'
+                        'padding:0.5rem 0.7rem;font-size:0.83rem;color:#c62828;">'
+                        f'🔴 这段有 <b>{len(red_list)}</b> 处错字 / 病句 — '
+                        '<span style="color:#888;font-size:0.78rem;">'
+                        '请将鼠标悬停在左边红色文字上查看正确写法'
+                        '</span>'
                         '</div>'
                     )
 
