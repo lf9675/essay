@@ -10,6 +10,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import get_active_assignments, save_submission, mark_viewed
 from prompts import build_grading_prompt, build_user_message, EXAM_LEVELS
 
+
+def html_escape(s):
+    """HTML 转义（模块级,所有渲染逻辑共用）"""
+    return (str(s).replace('&', '&amp;').replace('<', '&lt;')
+            .replace('>', '&gt;').replace('"', '&quot;'))
+
+
 st.set_page_config(page_title="学生作文提交", page_icon="✏️", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -871,12 +878,7 @@ elif st.session_state['feedback']:
         # 默认基础版用于范文部分（每段独立切换在下面单独实现）
         is_basic = True
 
-        # ── HTML 工具函数:在原文里嵌入红绿高亮 ────────────
-        def html_escape(s):
-            """HTML 转义"""
-            return (str(s).replace('&', '&amp;').replace('<', '&lt;')
-                    .replace('>', '&gt;').replace('"', '&quot;'))
-
+        # ── HTML 工具：build_highlighted_paragraph 用模块级 html_escape ────────────
         def build_highlighted_paragraph(orig_text, red_list, green_list):
             """
             把 original_text 转成带高亮的 HTML。
