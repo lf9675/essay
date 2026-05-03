@@ -701,6 +701,16 @@ elif st.session_state['feedback']:
         </div>
         """, unsafe_allow_html=True)
     with col_t:
+        # 总分卡片：只显示一句简洁的"距离 X 还差 Y 分"，完整提升路径放下面
+        gd_short = ''
+        if grade_distance:
+            # 提取"距离 X 还差 Y 分"开头部分（句号或冒号截断）
+            for sep in ['。', '：', '.']:
+                if sep in grade_distance:
+                    gd_short = grade_distance.split(sep, 1)[0]
+                    break
+            if not gd_short:
+                gd_short = grade_distance[:25]
         st.markdown(f"""
         <div style="background:linear-gradient(135deg,#fdf8ee,#f5e9d3);border-radius:12px;padding:1rem;
             border:1px solid #f0c27f;text-align:center;">
@@ -708,9 +718,116 @@ elif st.session_state['feedback']:
             <div style="font-size:2rem;font-weight:700;color:#7a5c1e;font-family:'Noto Serif SC',serif;">
                 {total_score}<span style="font-size:1rem;color:#7a5c1e;">/{max_total}</span>
             </div>
-            <div style="font-size:0.8rem;color:#7a5c1e;font-weight:500;">{grade_distance[:30] if grade_distance else ''}</div>
+            <div style="font-size:0.8rem;color:#7a5c1e;font-weight:500;">{gd_short}</div>
         </div>
         """, unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════
+    # v5.0 新增：完整提升路径卡片（含中英文语音）— 仅当 grade_distance 完整可用
+    # ══════════════════════════════════════════════════════════
+    gd_voice_zh = fb.get('grade_distance_voice_zh', '') or grade_distance
+    gd_voice_en = fb.get('grade_distance_voice_en', '')
+    if grade_distance and len(grade_distance) > 30:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="background:#fff8e1;border-radius:10px;padding:1rem 1.2rem;margin:0.5rem 0;
+            border-left:4px solid #fbc02d;">
+            <div style="color:#5d4400;font-weight:600;font-size:0.95rem;margin-bottom:0.4rem;">
+                🎯 这次的提升路径
+            </div>
+            <div style="color:#3a3020;font-size:0.92rem;line-height:1.75;">
+                {grade_distance}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if (gd_voice_zh and len(gd_voice_zh) >= 50) or (gd_voice_en and len(gd_voice_en) >= 50):
+            v_col1, v_col2 = st.columns(2)
+            with v_col1:
+                if gd_voice_zh and len(gd_voice_zh) >= 50:
+                    with st.expander("🔊 中文讲解：提升路径", expanded=False):
+                        try:
+                            import asyncio, edge_tts, io as _io_a
+                            async def _gen_z(text):
+                                com = edge_tts.Communicate(text, voice="zh-CN-XiaoxiaoNeural", rate="-5%")
+                                buf = _io_a.BytesIO()
+                                async for c in com.stream():
+                                    if c["type"] == "audio": buf.write(c["data"])
+                                buf.seek(0); return buf
+                            st.audio(asyncio.run(_gen_z(gd_voice_zh)), format="audio/mp3")
+                            st.caption(gd_voice_zh)
+                        except Exception as e:
+                            st.caption(f"语音不可用：{e}")
+                            st.write(gd_voice_zh)
+            with v_col2:
+                if gd_voice_en and len(gd_voice_en) >= 50:
+                    with st.expander("🔊 English: Path to next grade", expanded=False):
+                        try:
+                            import asyncio, edge_tts, io as _io_b
+                            async def _gen_e(text):
+                                com = edge_tts.Communicate(text, voice="en-US-JennyNeural", rate="-5%")
+                                buf = _io_b.BytesIO()
+                                async for c in com.stream():
+                                    if c["type"] == "audio": buf.write(c["data"])
+                                buf.seek(0); return buf
+                            st.audio(asyncio.run(_gen_e(gd_voice_en)), format="audio/mp3")
+                            st.caption(gd_voice_en)
+                        except Exception as e:
+                            st.caption(f"Audio unavailable: {e}")
+                            st.write(gd_voice_en)
+
+    # ══════════════════════════════════════════════════════════
+    # v5.0 新增：审题报告卡片（仅当 topic_analysis 存在时）
+    # ══════════════════════════════════════════════════════════
+    topic_analysis = fb.get('topic_analysis', {}) or {}
+    if topic_analysis and isinstance(topic_analysis, dict):
+        ta_type = topic_analysis.get('type', '')
+        ta_explain = topic_analysis.get('type_explanation', '')
+        ta_keywords = topic_analysis.get('keywords', []) or []
+        ta_theme = topic_analysis.get('central_theme', '')
+        ta_must = topic_analysis.get('must_include', []) or []
+
+        if ta_type or ta_keywords or ta_theme:
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.expander("🔍 老师的审题分析（题型 + 关键词 + 中心思想）", expanded=False):
+                kw_chips = ' '.join([
+                    f'<span style="background:#e3f2fd;color:#0d47a1;border:1px solid #90caf9;'
+                    f'border-radius:12px;padding:0.15rem 0.6rem;font-size:0.82rem;margin-right:0.3rem;'
+                    f'display:inline-block;margin-bottom:0.25rem;">{html_escape(k)}</span>'
+                    for k in ta_keywords
+                ]) if ta_keywords else '—'
+                must_chips = ' '.join([
+                    f'<span style="background:#fff3e0;color:#e65100;border:1px solid #ffb74d;'
+                    f'border-radius:12px;padding:0.15rem 0.6rem;font-size:0.82rem;margin-right:0.3rem;'
+                    f'display:inline-block;margin-bottom:0.25rem;">{html_escape(m)}</span>'
+                    for m in ta_must
+                ]) if ta_must else '—'
+
+                st.markdown(f"""
+                <div style="background:white;border-radius:8px;padding:0.9rem 1.1rem;
+                    border:1px solid #e8e0d5;line-height:1.85;">
+                    <div style="margin-bottom:0.6rem;">
+                        <span style="color:#0f3460;font-weight:600;font-size:0.9rem;">题型：</span>
+                        <span style="background:#fce4ec;color:#880e4f;border:1px solid #f48fb1;
+                            border-radius:12px;padding:0.15rem 0.7rem;font-size:0.85rem;
+                            font-weight:600;">{html_escape(str(ta_type))} 型</span>
+                        <span style="color:#666;font-size:0.85rem;margin-left:0.5rem;">
+                            {html_escape(ta_explain)}</span>
+                    </div>
+                    <div style="margin-bottom:0.6rem;">
+                        <span style="color:#0f3460;font-weight:600;font-size:0.9rem;">关键词：</span>
+                        <span>{kw_chips}</span>
+                    </div>
+                    <div style="margin-bottom:0.6rem;">
+                        <span style="color:#0f3460;font-weight:600;font-size:0.9rem;">中心思想：</span>
+                        <span style="color:#3a3020;font-size:0.9rem;">{html_escape(ta_theme)}</span>
+                    </div>
+                    <div>
+                        <span style="color:#0f3460;font-weight:600;font-size:0.9rem;">文中必须出现：</span>
+                        <span>{must_chips}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════
     # 模块 2:总评 + 优点 + 教练建议(语音 + 文字)
@@ -786,38 +903,12 @@ elif st.session_state['feedback']:
                 {coaching_html}
             </div>""", unsafe_allow_html=True)
 
-        # 鼓励语
-        if encourage:
-            st.markdown(f"""
-            <div style="background:#f3e5f5;border-radius:8px;padding:0.7rem 1rem;
-                margin:0.5rem 0;border-left:3px solid #8e24aa;">
-                <span style="color:#6a1b9a;font-weight:600;font-size:0.85rem;">💖 </span>
-                <span style="color:#4a148c;font-size:0.9rem;font-style:italic;">{encourage}</span>
-            </div>""", unsafe_allow_html=True)
+        # v5.0：删除紫色"鼓励语"框（与黄色"最重要建议"框语义重复）
+        # v5.0：删除"评分依据"展开框（产品重点不是"评分准确度"，是让学生看到怎么改）
+        # encourage 字段仍保留供语音播放使用，但不再渲染独立卡片
 
     # ══════════════════════════════════════════════════════════
-    # 模块 3:评分依据(可折叠,默认折叠 — 让学生看主要的)
-    # ══════════════════════════════════════════════════════════
-    with st.expander("📊 评分依据（按 SEAB 官方等级标准）", expanded=False):
-        st.markdown(f"""
-        <div style="background:white;border-radius:8px;padding:0.9rem 1rem;margin:0.4rem 0;
-            border:1px solid #e8e0d5;">
-            <div style="color:#0f3460;font-weight:600;font-size:0.9rem;margin-bottom:0.3rem;">
-                内容 {content_score}分 — {content_level}
-            </div>
-            <div style="color:#555;font-size:0.85rem;line-height:1.6;">{content_reason}</div>
-        </div>
-        <div style="background:white;border-radius:8px;padding:0.9rem 1rem;margin:0.4rem 0;
-            border:1px solid #e8e0d5;">
-            <div style="color:#0f3460;font-weight:600;font-size:0.9rem;margin-bottom:0.3rem;">
-                语文 {language_score}分 — {language_level}
-            </div>
-            <div style="color:#555;font-size:0.85rem;line-height:1.6;">{language_reason}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ══════════════════════════════════════════════════════════
-    # 模块 4:段落式批改(v3 核心 — 阶段 A:简化版,阶段 B 升级为左右对照)
+    # 模块 3:段落式批改(v5.0 重构 — 教育而非指令,4 套方法论,三层示范)
     # ══════════════════════════════════════════════════════════
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("### 📖 逐段批改与修改示范")
@@ -1021,9 +1112,45 @@ elif st.session_state['feedback']:
         )
 
         # ── 逐段渲染:左原文 / 右批改 ────────────
+        # ── v5.0 三色标签辅助函数 ────────────
+        EVAL_COLOR_MAP = {
+            "green":  ("#2e7d32", "#e8f5e9", "#43a047"),  # 文字 / 背景 / 边框
+            "yellow": ("#e65100", "#fff8e1", "#fb8c00"),
+            "red":    ("#c62828", "#ffebee", "#e53935"),
+        }
+
+        def _make_audio_player(text, voice_id, label):
+            """生成 expander 形式的语音播放器,文字+音频。失败时退化为纯文本。"""
+            with st.expander(label, expanded=False):
+                try:
+                    import asyncio, edge_tts, io as _io2
+                    async def _gen(t, v):
+                        com = edge_tts.Communicate(t, voice=v, rate="-5%")
+                        buf = _io2.BytesIO()
+                        async for c in com.stream():
+                            if c["type"] == "audio": buf.write(c["data"])
+                        buf.seek(0); return buf
+                    st.audio(asyncio.run(_gen(text, voice_id)), format="audio/mp3")
+                    st.caption(text)
+                except Exception as e:
+                    st.caption(f"语音不可用：{e}")
+                    st.write(text)
+
         for p in paragraphs:
             para_num = p.get('para_num', '?')
             para_role = p.get('para_role', '')
+            # v5.0 新字段（如有）
+            para_range = p.get('para_range', '')
+            para_role_label = p.get('para_role_label', '')
+            evaluation = p.get('evaluation', '')
+            evaluation_color = p.get('evaluation_color', '')
+            method_used = p.get('method_used', '')
+            why_change = p.get('why_change', '')
+            how_to_change = p.get('how_to_change', []) or []
+            voice_zh = p.get('voice_zh', '')
+            voice_en = p.get('voice_en', '')
+            revised_improved = p.get('revised_improved', '')
+
             original = p.get('original_text', '')
             # 兼容老数据:有些可能还是 language_issues
             red_list = p.get('red_issues', []) or []
@@ -1047,11 +1174,29 @@ elif st.session_state['feedback']:
             revised_b = p.get('revised_basic', '')
             revised_a = p.get('revised_advanced', '')
 
-            # 段落标题(横跨整行)
-            st.markdown(
-                f'<div class="para-card">第 {para_num} 段 · {para_role}</div>',
-                unsafe_allow_html=True
-            )
+            # 是否走 v5.0 新渲染（有 why_change 字段就是 v5.0 输出）
+            is_v5 = bool(why_change) or bool(how_to_change)
+
+            # ── 段落标题（v5.0：彩色标签 + 段号范围；v4.9：原 para_role）──
+            if is_v5 and para_role_label and evaluation_color in EVAL_COLOR_MAP:
+                tag_fg, tag_bg, tag_bd = EVAL_COLOR_MAP[evaluation_color]
+                seg_label = para_range or f"第 {para_num} 段"
+                st.markdown(
+                    f'<div class="para-card" style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">'
+                    f'<span style="color:#0f3460;">{html_escape(seg_label)}</span>'
+                    f'<span style="background:{tag_bg};color:{tag_fg};border:1px solid {tag_bd};'
+                    f'border-radius:14px;padding:0.15rem 0.7rem;font-size:0.82rem;font-weight:500;">'
+                    f'{html_escape(para_role_label)}</span>'
+                    + (f'<span style="color:#888;font-size:0.78rem;">· 写作技巧：{html_escape(method_used)}</span>'
+                       if method_used and method_used != '-' else '')
+                    + '</div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f'<div class="para-card">第 {para_num} 段 · {para_role}</div>',
+                    unsafe_allow_html=True
+                )
 
             # ── 整个段落用一个带边框的容器包起来 = 视觉单元 ──
             with st.container(border=True):
@@ -1120,8 +1265,54 @@ elif st.session_state['feedback']:
                     right_parts.append('</div>')  # close right-fb
                     st.markdown(''.join(right_parts), unsafe_allow_html=True)
 
-                    # ─────── 结构内容批改 — 也在右栏内,需要 Streamlit 原生支持语音 ───────
-                    if struct_iss:
+                    # ═══════════════════════════════════════════════════════
+                    # v5.0 新增：💡 黄色"为什么要改 + 怎么改"框
+                    # ═══════════════════════════════════════════════════════
+                    if is_v5 and (why_change or how_to_change):
+                        # 黄色卡片 — 教育而非指令的核心
+                        why_html = (
+                            '<div style="background:#fff8e1;border-left:3px solid #fbc02d;'
+                            'border-radius:5px;padding:0.6rem 0.8rem;margin:0.5rem 0;'
+                            'font-size:0.86rem;line-height:1.65;">'
+                            '<div style="color:#5d4400;font-weight:600;margin-bottom:0.3rem;font-size:0.85rem;">'
+                            '💡 怎么改？老师告诉你为什么 + 怎么做'
+                            '</div>'
+                        )
+                        if why_change:
+                            why_html += (
+                                f'<div style="color:#3a3020;margin:0.3rem 0;line-height:1.7;">'
+                                f'{html_escape(why_change)}'
+                                f'</div>'
+                            )
+                        if how_to_change:
+                            tips_html = ''.join([
+                                f'<li style="margin:0.15rem 0;color:#3a3020;">{html_escape(tip)}</li>'
+                                for tip in how_to_change
+                            ])
+                            why_html += (
+                                f'<div style="color:#7a5c1e;font-weight:500;margin-top:0.4rem;font-size:0.82rem;">'
+                                f'三个小技巧：</div>'
+                                f'<ul style="margin:0.2rem 0 0 1.2rem;padding:0;font-size:0.84rem;">'
+                                f'{tips_html}</ul>'
+                            )
+                        why_html += '</div>'
+                        st.markdown(why_html, unsafe_allow_html=True)
+
+                        # 中英文语音按钮（v5.0：所有有 why_change 的段落都加）
+                        # 仅当 voice_zh 超过 50 字才显示中文语音；en 同理
+                        v_col1, v_col2 = st.columns(2)
+                        with v_col1:
+                            if voice_zh and len(voice_zh) >= 50:
+                                _make_audio_player(voice_zh, "zh-CN-XiaoxiaoNeural", "🔊 中文讲解")
+                        with v_col2:
+                            if voice_en and len(voice_en) >= 50:
+                                _make_audio_player(voice_en, "en-US-JennyNeural", "🔊 English")
+
+                    # ═══════════════════════════════════════════════════════
+                    # v4.9 老逻辑：蓝色 structure_content_issues 卡片
+                    # （仅在 v5.0 字段缺失时启用，避免双显）
+                    # ═══════════════════════════════════════════════════════
+                    if not is_v5 and struct_iss:
                         for si_idx, si in enumerate(struct_iss):
                             si_aspect = si.get('aspect', '')
                             si_problem = si.get('problem', '')
@@ -1157,91 +1348,96 @@ elif st.session_state['feedback']:
                                 v_col1, v_col2 = st.columns(2)
                                 with v_col1:
                                     if si_voice_zh:
-                                        with st.expander("🔊 中文讲解", expanded=False):
-                                            try:
-                                                import asyncio, edge_tts, io as _io
-                                                async def _gen_zh(text):
-                                                    com = edge_tts.Communicate(
-                                                        text, voice="zh-CN-XiaoxiaoNeural", rate="-5%"
-                                                    )
-                                                    buf = _io.BytesIO()
-                                                    async for c in com.stream():
-                                                        if c["type"] == "audio": buf.write(c["data"])
-                                                    buf.seek(0); return buf
-                                                st.audio(
-                                                    asyncio.run(_gen_zh(si_voice_zh)),
-                                                    format="audio/mp3"
-                                                )
-                                                st.caption(si_voice_zh)
-                                            except Exception as e:
-                                                st.caption(f"语音不可用：{e}")
-                                                st.write(si_voice_zh)
+                                        _make_audio_player(si_voice_zh, "zh-CN-XiaoxiaoNeural", "🔊 中文讲解")
                                 with v_col2:
                                     if si_voice_en:
-                                        with st.expander("🔊 English", expanded=False):
-                                            try:
-                                                import asyncio, edge_tts, io as _io
-                                                async def _gen_en(text):
-                                                    com = edge_tts.Communicate(
-                                                        text, voice="en-US-JennyNeural", rate="-5%"
-                                                    )
-                                                    buf = _io.BytesIO()
-                                                    async for c in com.stream():
-                                                        if c["type"] == "audio": buf.write(c["data"])
-                                                    buf.seek(0); return buf
-                                                st.audio(
-                                                    asyncio.run(_gen_en(si_voice_en)),
-                                                    format="audio/mp3"
-                                                )
-                                                st.caption(si_voice_en)
-                                            except Exception as e:
-                                                st.caption(f"Audio unavailable: {e}")
-                                                st.write(si_voice_en)
+                                        _make_audio_player(si_voice_en, "en-US-JennyNeural", "🔊 English")
 
-                    # ── 段落级基础/进阶版按钮 + 修改示范 (放在右栏内部底部) ──
-                    ver_key = f"para_ver_{para_num}"
-                    if ver_key not in st.session_state:
-                        st.session_state[ver_key] = "basic"
-
-                    # 分隔线
+                    # ── 分隔线 ──
                     st.markdown(
                         '<div style="border-top:1px dashed #d4e3f5;margin:0.8rem 0 0.5rem;"></div>',
                         unsafe_allow_html=True
                     )
 
-                    btn_col1, btn_col2 = st.columns(2)
-                    with btn_col1:
-                        if st.button(
-                            "📘 基础版" + (" ✓" if st.session_state[ver_key]=="basic" else ""),
-                            key=f"btn_b_{para_num}", use_container_width=True
-                        ):
+                    # ═══════════════════════════════════════════════════════
+                    # 老师改写示范：v5.0 三层（基础 / 提升 / 高分）；v4.9 双层（基础 / 进阶）
+                    # ═══════════════════════════════════════════════════════
+                    if is_v5 and revised_improved:
+                        # v5.0 三层版本：默认显示基础版（绿色），提升+高分折叠
+                        if revised_b:
+                            st.markdown(
+                                '<div style="background:#f1f8e9;border-left:3px solid #43a047;'
+                                'padding:0.7rem 0.9rem;margin:0.4rem 0 0.3rem;border-radius:5px;">'
+                                '<div style="color:#2e7d32;font-weight:600;font-size:0.82rem;margin-bottom:0.3rem;">'
+                                '🟢 看看老师改写后（基础版 — C 段冲 B 段）</div>'
+                                f'<div style="color:#2c2c2a;font-size:0.88rem;line-height:1.8;">'
+                                f'{html_escape(revised_b)}</div>'
+                                '</div>',
+                                unsafe_allow_html=True
+                            )
+
+                        with st.expander("▾ 查看更多版本（提升版 / 高分版）", expanded=False):
+                            if revised_improved:
+                                st.markdown(
+                                    '<div style="background:#e3f2fd;border-left:3px solid #1976d2;'
+                                    'padding:0.7rem 0.9rem;margin:0.3rem 0;border-radius:5px;">'
+                                    '<div style="color:#0d47a1;font-weight:600;font-size:0.82rem;margin-bottom:0.3rem;">'
+                                    '🔵 提升版（B 段冲 A2）</div>'
+                                    f'<div style="color:#2c2c2a;font-size:0.88rem;line-height:1.8;">'
+                                    f'{html_escape(revised_improved)}</div>'
+                                    '</div>',
+                                    unsafe_allow_html=True
+                                )
+                            if revised_a:
+                                st.markdown(
+                                    '<div style="background:#fce4ec;border-left:3px solid #c2185b;'
+                                    'padding:0.7rem 0.9rem;margin:0.3rem 0;border-radius:5px;">'
+                                    '<div style="color:#880e4f;font-weight:600;font-size:0.82rem;margin-bottom:0.3rem;">'
+                                    '🔴 高分版（A 段冲 A1）</div>'
+                                    f'<div style="color:#2c2c2a;font-size:0.88rem;line-height:1.8;">'
+                                    f'{html_escape(revised_a)}</div>'
+                                    '</div>',
+                                    unsafe_allow_html=True
+                                )
+                    else:
+                        # v4.9 老双层：基础/进阶按钮
+                        ver_key = f"para_ver_{para_num}"
+                        if ver_key not in st.session_state:
                             st.session_state[ver_key] = "basic"
-                            st.rerun()
-                    with btn_col2:
-                        if st.button(
-                            "🌟 进阶版" + (" ✓" if st.session_state[ver_key]=="advanced" else ""),
-                            key=f"btn_a_{para_num}", use_container_width=True
-                        ):
-                            st.session_state[ver_key] = "advanced"
-                            st.rerun()
 
-                    # 显示选中的版本修改
-                    cur_ver = st.session_state[ver_key]
-                    cur_revised = revised_b if cur_ver == "basic" else revised_a
-                    ver_color = "#558b2f" if cur_ver == "basic" else "#6a1b9a"
-                    ver_bg = "#f1f8e9" if cur_ver == "basic" else "#f3e5f5"
-                    ver_label = "Basic (小六水平)" if cur_ver == "basic" else "Advanced (A1+水平)"
+                        btn_col1, btn_col2 = st.columns(2)
+                        with btn_col1:
+                            if st.button(
+                                "📘 基础版" + (" ✓" if st.session_state[ver_key]=="basic" else ""),
+                                key=f"btn_b_{para_num}", use_container_width=True
+                            ):
+                                st.session_state[ver_key] = "basic"
+                                st.rerun()
+                        with btn_col2:
+                            if st.button(
+                                "🌟 进阶版" + (" ✓" if st.session_state[ver_key]=="advanced" else ""),
+                                key=f"btn_a_{para_num}", use_container_width=True
+                            ):
+                                st.session_state[ver_key] = "advanced"
+                                st.rerun()
 
-                    st.markdown(
-                        f'<div style="background:{ver_bg};border-left:3px solid {ver_color};'
-                        f'padding:0.7rem 0.9rem;margin:0.4rem 0 0;border-radius:5px;">'
-                        f'<div style="color:{ver_color};font-weight:500;font-size:0.78rem;'
-                        f'margin-bottom:0.3rem;">📝 {ver_label}</div>'
-                        f'<div style="color:#2c2c2a;font-size:0.88rem;line-height:1.8;">'
-                        f'{html_escape(cur_revised)}</div>'
-                        f'</div>',
-                        unsafe_allow_html=True
-                    )
+                        # 显示选中的版本修改
+                        cur_ver = st.session_state[ver_key]
+                        cur_revised = revised_b if cur_ver == "basic" else revised_a
+                        ver_color = "#558b2f" if cur_ver == "basic" else "#6a1b9a"
+                        ver_bg = "#f1f8e9" if cur_ver == "basic" else "#f3e5f5"
+                        ver_label = "Basic (小六水平)" if cur_ver == "basic" else "Advanced (A1+水平)"
+
+                        st.markdown(
+                            f'<div style="background:{ver_bg};border-left:3px solid {ver_color};'
+                            f'padding:0.7rem 0.9rem;margin:0.4rem 0 0;border-radius:5px;">'
+                            f'<div style="color:{ver_color};font-weight:500;font-size:0.78rem;'
+                            f'margin-bottom:0.3rem;">📝 {ver_label}</div>'
+                            f'<div style="color:#2c2c2a;font-size:0.88rem;line-height:1.8;">'
+                            f'{html_escape(cur_revised)}</div>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
 
             # 段落间距
             st.markdown('<div style="margin-bottom:1.5rem;"></div>', unsafe_allow_html=True)
