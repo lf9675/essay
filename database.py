@@ -320,6 +320,195 @@ def get_error_ranking(student_id, limit=10):
     return rows
 
 
+def get_progress_card_data(student_id, current_submission_id):
+    """为“进步卡片”准备数据。核心是：分数只跟【同文体的上一篇】比，
+    避免记叙文跟议论文比分这种误导。返回一个 dict，前端按 state 渲染。
+
+    state 三选一：
+      'first'    第一篇（同文体没有更早的可比对象）
+      'progress' 比同文体上一篇进步（分数涨 或 错误减少）
+      'attention'其他（分数没涨/退步），转成温和提醒，不打击
+
+    返回字段：
+      state, score, max_score, grade,
+      score_delta (None=无同文体可比), 
+      top_issue (最常见问题，个性化训练入口；None=暂无),
+      improved_note (进步点的人话描述), headline (一句老师的话)
+    """
+    conn = get_conn()
+    c = conn.cursor()
+
+    # 当前这篇
+    c.execute("SELECT * FROM essay_records WHERE submission_id = ?", (current_submission_id,))
+    cur = c.fetchone()
+    if not cur:
+        conn.close()
+        return None
+    cur = dict(cur)
+    genre = cur.get("genre") or ""
+
+    # 找【同文体】里时间更早的最近一篇（同学生，排除自己）
+    c.execute("""SELECT * FROM essay_records
+                 WHERE student_id = ? AND genre = ? AND submission_id != ?
+                   AND graded_at < ?
+                 ORDER BY graded_at DESC LIMIT 1""",
+              (student_id, genre, current_submission_id, cur.get("graded_at") or ""))
+    prev_row = c.fetchone()
+    prev = dict(prev_row) if prev_row else None
+
+    # 满分按考级取（HCL=60，其余 40）。essay_records 没存满分，从 exam_level 推。
+    max_score = 60 if (cur.get("exam_level") == "HCL") else 40
+    score = cur.get("display_total")
+    grade = cur.get("grade") or ""
+
+    # 当前这篇的错误数 + 最常见问题
+    def err_count(sid):
+        c.execute("SELECT COUNT(*) n FROM error_tags WHERE submission_id = ?", (sid,))
+        return c.fetchone()["n"]
+    cur_err = err_count(current_submission_id)
+
+    # 最常见问题 = 该学生历来高频第一（个性化训练入口）
+    c.execute("""SELECT error_category, COUNT(*) freq FROM error_tags
+                 WHERE student_id = ? GROUP BY error_category
+                 ORDER BY freq DESC LIMIT 1""", (student_id,))
+    top_row = c.fetchone()
+    top_issue = top_row["error_category"] if top_row else None
+
+    data = {
+        "score": score, "max_score": max_score, "grade": grade,
+        "score_delta": None, "top_issue": top_issue,
+        "improved_note": "", "headline": "",
+    }
+
+    if prev is None:
+        # 第一篇（同文体无可比）
+        data["state"] = "first"
+        data["headline"] = "这是一个很好的起点！把这篇收好，下次再写一篇同类作文，我就能告诉你进步了多少。"
+        conn.close()
+        return data
+
+    prev_err = err_count(prev["submission_id"])
+    s_now = score or 0
+    s_prev = prev.get("display_total") or 0
+    delta = s_now - s_prev
+    data["score_delta"] = delta
+
+    # 找“改掉的问题”（上次有、这次没有的类别），拼人话
+    def err_cats(sid):
+        c.execute("""SELECT error_category, COUNT(*) n FROM error_tags
+                     WHERE submission_id = ? GROUP BY error_category""", (sid,))
+        return {r["error_category"]: r["n"] for r in c.fetchall()}
+    now_cats = err_cats(current_submission_id)
+    prev_cats = err_cats(prev["submission_id"])
+    fixed = []
+    for cat, n in prev_cats.items():
+        reduced = n - now_cats.get(cat, 0)
+        if reduced > 0:
+            fixed.append((cat, reduced))
+    fixed.sort(key=lambda x: -x[1])
+
+    is_progress = (delta > 0) or (cur_err < prev_err)
+    if is_progress:
+        data["state"] = "progress"
+        parts = []
+        if delta > 0:
+            parts.append(f"比上次{genre}进步了 {delta} 分")
+        if fixed:
+            cat, n = fixed[0]
+            parts.append(f"{cat}的问题少了 {n} 个" if cat in ("错别字", "标点错误", "病句")
+                         else f"{cat}的毛病改掉了")
+        data["improved_note"] = "，".join(parts) if parts else "这次写得更稳了"
+        data["headline"] = "继续保持！" + (
+            f"下次特别留意一下「{top_issue}」，这是你最近最常遇到的。" if top_issue else "")
+    else:
+        data["state"] = "attention"
+        data["headline"] = (
+            f"这次的作文有它的亮点。下次只要重点改一个地方就好：留意「{top_issue}」，"
+            "这是你最近最常遇到的问题。" if top_issue else
+            "这次的作文有它的亮点，继续多练，慢慢就会更稳。")
+
+    conn.close()
+    return data
+
+
+def render_progress_card_html(data):
+    """把 get_progress_card_data 的返回渲染成 HTML 字符串。
+    用 st.markdown(html, unsafe_allow_html=True) 输出。数据与展示分离，
+    调文案只改 get_progress_card_data，调样式只改这里。
+    设计原则：单一主色、不堆术语、退步不打击、最常见问题作为训练入口。"""
+    if not data:
+        return ""
+
+    state = data.get("state")
+    score = data.get("score")
+    max_score = data.get("max_score", 60)
+    grade = data.get("grade") or ""
+    delta = data.get("score_delta")
+    top_issue = data.get("top_issue")
+    improved = data.get("improved_note") or ""
+    headline = data.get("headline") or ""
+
+    grade_str = f" · {grade}" if grade else ""
+    score_str = f"{score}" if score is not None else "—"
+
+    # 主色 + 图标 + 标题，按状态切换（退步用中性蓝，不用红）
+    if state == "progress":
+        accent = "#1D9E75"; icon = "&#9650;"; title = "这次比上次进步了"
+    elif state == "attention":
+        accent = "#185FA5"; icon = "&#9873;"; title = "这次有几个地方可以再注意"
+    else:  # first
+        accent = "#1D9E75"; icon = "&#10022;"; title = "这是你的第一篇作文"
+
+    # 右侧第二格内容按状态变化
+    if state == "progress" and delta is not None:
+        right_label = "比上次同类作文"
+        right_value = f'<span style="color:{accent}">{"+" if delta>=0 else ""}{delta} 分</span>'
+        right_sub = ""
+    elif top_issue:
+        right_label = "最常出现的问题"
+        right_value = f'{top_issue}'
+        right_sub = "点这里多练这一类"  # 预留训练入口，暂为提示文案
+    else:
+        right_label = "这次发现"
+        right_value = f'{score is not None and "几处" or "—"}'
+        right_sub = "可以改进的地方"
+
+    # 进步状态额外显示“改掉了什么”
+    improved_html = (
+        f'<div style="font-size:14px;line-height:1.7;color:#1a1a1a;margin-bottom:6px">'
+        f'<span style="color:{accent};font-weight:500">{improved}</span>。</div>'
+        if (state == "progress" and improved) else ""
+    )
+
+    # 最常见问题作为训练入口：预留 data-* 钩子，未来接专项训练时用 JS/Streamlit 捕获
+    issue_hook = (
+        f' data-train-issue="{top_issue}"' if top_issue else ""
+    )
+
+    html = f"""
+<div style="background:#fff;border:0.5px solid rgba(0,0,0,0.12);border-radius:12px;padding:16px 20px;margin:8px 0 16px"{issue_hook}>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <span style="font-size:20px;color:{accent}">{icon}</span>
+    <span style="font-size:16px;font-weight:500;color:#1a1a1a">{title}</span>
+  </div>
+  <div style="display:flex;gap:10px;margin-bottom:12px">
+    <div style="flex:1;background:#f5f4ef;border-radius:8px;padding:10px 12px">
+      <div style="font-size:13px;color:#6b6a64">这次得分</div>
+      <div style="font-size:24px;font-weight:500;color:#1a1a1a">{score_str} <span style="font-size:14px;color:#6b6a64">/ {max_score}{grade_str}</span></div>
+    </div>
+    <div style="flex:1;background:#f5f4ef;border-radius:8px;padding:10px 12px">
+      <div style="font-size:13px;color:#6b6a64">{right_label}</div>
+      <div style="font-size:20px;font-weight:500;color:#1a1a1a;padding-top:2px">{right_value}</div>
+      {f'<div style="font-size:13px;color:#6b6a64">{right_sub}</div>' if right_sub else ''}
+    </div>
+  </div>
+  {improved_html}
+  <div style="font-size:14px;line-height:1.7;color:#1a1a1a">{headline}</div>
+</div>
+"""
+    return html
+
+
 def backfill_growth_data():
     """一次性回填：扫描全部历史 submissions，从 feedback_json 重建两张新表。
     幂等，可重复跑。新表出 bug 或加字段后，跑这个就能从原始 JSON 重建。"""
