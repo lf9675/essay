@@ -7,7 +7,8 @@ import os
 import PIL.Image
 import io
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from database import get_active_assignments, save_submission, mark_viewed
+from database import (get_active_assignments, save_submission, mark_viewed,
+                      get_progress_card_data, render_progress_card_html)
 from prompts import build_grading_prompt, build_user_message, EXAM_LEVELS
 
 st.set_page_config(page_title="学生作文提交", page_icon="✏️", layout="wide", initial_sidebar_state="collapsed")
@@ -712,6 +713,21 @@ elif st.session_state['feedback']:
             <div style="font-size:0.8rem;color:#7a5c1e;font-weight:500;">{grade_distance[:30] if grade_distance else ''}</div>
         </div>
         """, unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════
+    # 模块 1.5:进步卡片 — 让学生一眼看到“这次比上次进步了多少”
+    # 仅在已存库(有 sub_id)时显示;同文体首篇显示起点卡,之后显示进步/提醒
+    # ══════════════════════════════════════════════════════════
+    if sub_id:
+        try:
+            _card = get_progress_card_data(
+                st.session_state.get('student_id', ''), sub_id
+            )
+            _card_html = render_progress_card_html(_card)
+            if _card_html:
+                st.markdown(_card_html, unsafe_allow_html=True)
+        except Exception:
+            pass  # 卡片渲染失败绝不影响批改结果展示
 
     # ══════════════════════════════════════════════════════════
     # 模块 2:总评 + 优点 + 教练建议(语音 + 文字)
